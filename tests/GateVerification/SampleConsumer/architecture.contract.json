@@ -1,0 +1,20 @@
+{
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
+    { "name": "Application", "namespaceRoots": [ "SampleConsumer.Application" ] }
+  ],
+  "forbiddenDependencies": [
+    {
+      "from": "Domain",
+      "to": "Application",
+      "reason": "Domain must not depend on the outer Application layer."
+    }
+  ],
+  "forbiddenApis": [
+    {
+      "layer": "Domain",
+      "type": "System.Console",
+      "reason": "Console I/O must be abstracted behind an Infrastructure adapter."
+    }
+  ]
+}

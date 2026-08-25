@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately NOT part of ArchitectureAnalyzer.sln: verify-gate.sh drives this project through
+    a passing / failing / passing build cycle, which would break any solution-wide build that
+    included it. See tests/GateVerification/README.md.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SampleConsumer</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- This is exactly how a real consumer wires the analyzer up. -->
+    <ProjectReference Include="..\..\..\src\ArchitectureAnalyzer\ArchitectureAnalyzer.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <AdditionalFiles Include="architecture.contract.json" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+// Deliberately stored as .cs.txt so the default **/*.cs compile glob never picks it up.
+// verify-gate.sh copies this content to SampleConsumer/Domain/Violation.cs, asserts that
+// dotnet build then fails with AARC002, and removes it again.
+using SampleConsumer.Application;
+
+namespace SampleConsumer.Domain;
+
+/// <summary>
+/// A Domain type that reaches into the Application layer - forbidden by
+/// SampleConsumer/architecture.contract.json.
+/// </summary>
+public sealed class ViolatingEntity
+{
+    /// <summary>Describes an entity via the outer layer, which the contract forbids.</summary>
+    /// <param name="entity">The entity to describe.</param>
+    /// <returns>The entity name.</returns>
+    public string Describe(DomainEntity entity)
+    {
+        var service = new AppService();
+        return service.Describe(entity);
+    }
+}

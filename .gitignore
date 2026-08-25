@@ -1,0 +1,68 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+build/
+bld/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+*.userprefs
+*.DotSettings.user
+
+## Test / coverage results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.info
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+*.nuget.props
+*.nuget.targets
+
+## MSBuild / misc
+*.binlog
+*.tlog
+*.ilk
+*.pdb
+*.cache
+*.log
+project.lock.json
+project.fragment.lock.json
+
+## OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Agent tooling state (not part of the project)
+.omc/
+
+## Transient file created by tests/GateVerification/verify-gate.sh; it must never be committed.
+tests/GateVerification/SampleConsumer/Domain/Violation.cs

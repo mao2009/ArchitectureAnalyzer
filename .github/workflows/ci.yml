@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build, test and verify the architecture gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Matches the SDK the repository is developed and verified against locally.
+          dotnet-version: '10.0.302'
+
+      - name: Restore
+        run: dotnet restore ArchitectureAnalyzer.sln
+
+      - name: Build
+        # tests/GateVerification/SampleConsumer is intentionally not in the solution, so this
+        # step is unaffected by the gate verification below.
+        run: dotnet build ArchitectureAnalyzer.sln --no-restore
+
+      - name: Test
+        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --no-build
+
+      - name: Verify architecture gate (real dotnet build)
+        # The proof that a contract violation actually fails a build, not just a test harness.
+        run: |
+          chmod +x tests/GateVerification/verify-gate.sh
+          tests/GateVerification/verify-gate.sh
