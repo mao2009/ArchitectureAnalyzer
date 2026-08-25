@@ -1,0 +1,86 @@
+name: NuGet
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (for example 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Pack and publish NuGet package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NUGET_SOURCE: https://api.nuget.org/v3/index.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.302'
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version='${{ inputs.version }}'
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid package version: $version"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore ArchitectureAnalyzer.sln
+
+      - name: Build
+        run: dotnet build src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --configuration Release --no-build
+
+      - name: Pack
+        run: >-
+          dotnet pack src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj
+          --configuration Release
+          --no-build
+          --output ./artifacts
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+          -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          package=(./artifacts/*.nupkg)
+          test "${#package[@]}" -eq 1
+          unzip -l "${package[0]}"
+          unzip -l "${package[0]}" | grep -q 'analyzers/dotnet/cs/ArchitectureAnalyzer.dll'
+
+      - name: Publish to NuGet.org
+        run: >-
+          dotnet nuget push ./artifacts/*.nupkg
+          --source "$NUGET_SOURCE"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --skip-duplicate
