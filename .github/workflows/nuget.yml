@@ -58,7 +58,7 @@ jobs:
         run: dotnet build src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --configuration Release --no-build
+        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --configuration Release
 
       - name: Pack
         run: >-
