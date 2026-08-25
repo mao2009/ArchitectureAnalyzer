@@ -6,10 +6,29 @@
     <AssemblyName>ArchitectureAnalyzer</AssemblyName>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <IsPackable>false</IsPackable>
+
+    <!-- NuGet analyzer package metadata. Version is supplied by the release tag/CI. -->
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <PackageId>loach.ArchitectureAnalyzer</PackageId>
+    <Authors>loach</Authors>
+    <Description>Configurable Roslyn analyzer for enforcing architecture contracts at compile time.</Description>
+    <PackageTags>roslyn;analyzer;architecture;architecture-as-code;static-analysis</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/mao2009/ArchitectureAnalyzer</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/mao2009/ArchitectureAnalyzer</PackageProjectUrl>
+
     <!-- RS2008: analyzer release tracking files are not used by this repository. -->
     <NoWarn>$(NoWarn);RS2008</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Analyzer assemblies belong in the NuGet analyzer folder, not lib/. -->
+    <None Include="$(TargetPath)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(MSBuildProjectDirectory)/../../README.md" Pack="true" PackagePath="README.md" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" PrivateAssets="all" ExcludeAssets="runtime" />
