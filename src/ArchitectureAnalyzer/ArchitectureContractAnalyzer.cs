@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
+using ArchitectureAnalyzer.Configuration;
 using ArchitectureAnalyzer.Contract;
 using ArchitectureAnalyzer.Diagnostics;
 using Microsoft.CodeAnalysis;
@@ -31,7 +32,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
         ArchitectureDiagnostics.ArchitectureContractInvalid,
         ArchitectureDiagnostics.ForbiddenLayerDependency,
-        ArchitectureDiagnostics.ForbiddenApiUsage);
+        ArchitectureDiagnostics.ForbiddenApiUsage,
+        ArchitectureDiagnostics.InvalidConfigurationValue);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -49,10 +51,18 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
     private static void OnCompilationStart(CompilationStartAnalysisContext context)
     {
+        // Read compilation-wide operational config (contract_required is GlobalOptions).
+        var configProvider = context.Options.AnalyzerConfigOptionsProvider;
+        var configDiagnostics =
+            new ConcurrentDictionary<string, (DiagnosticDescriptor, Location, string, string)>();
+
         var contractFile = FindContractFile(context.Options.AdditionalFiles);
         if (contractFile is null)
         {
             // Opt-in semantics: a project that never declares a contract is never analyzed.
+            // Report any invalid config values found even when no contract exists.
+            context.RegisterCompilationEndAction(endContext =>
+                ReportConfigDiagnostics(endContext, configDiagnostics));
             return;
         }
 
@@ -63,12 +73,19 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (!result.Succeeded)
         {
             var reason = result.ErrorReason ?? "unknown error";
-            context.RegisterCompilationEndAction(endContext => endContext.ReportDiagnostic(
-                Diagnostic.Create(
-                    ArchitectureDiagnostics.ArchitectureContractInvalid,
-                    Location.None,
-                    fileName,
-                    reason)));
+            context.RegisterCompilationEndAction(endContext =>
+            {
+                if (IsContractRequired(endContext.Compilation, configProvider))
+                {
+                    endContext.ReportDiagnostic(Diagnostic.Create(
+                        ArchitectureDiagnostics.ArchitectureContractInvalid,
+                        Location.None,
+                        fileName,
+                        reason));
+                }
+
+                ReportConfigDiagnostics(endContext, configDiagnostics);
+            });
             return;
         }
 
@@ -76,11 +93,27 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var reportedDependencies = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         context.RegisterSyntaxNodeAction(
-            nodeContext => AnalyzeDependencyDirection(nodeContext, contract, reportedDependencies),
+            nodeContext =>
+            {
+                var treeConfig = ConfigReader.Read(configProvider, nodeContext.Node.SyntaxTree, configDiagnostics);
+                AnalyzeDependencyDirection(nodeContext, contract, reportedDependencies, treeConfig);
+            },
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
 
-        context.RegisterOperationBlockAction(blockContext => AnalyzeForbiddenApiUsage(blockContext, contract));
+        context.RegisterOperationBlockAction(blockContext =>
+        {
+            var firstTree = blockContext.OperationBlocks.Length > 0
+                ? blockContext.OperationBlocks[0].Syntax.SyntaxTree
+                : null;
+            var treeConfig = firstTree is not null
+                ? ConfigReader.Read(configProvider, firstTree, configDiagnostics)
+                : OperationalConfig.Default;
+            AnalyzeForbiddenApiUsage(blockContext, contract, treeConfig);
+        });
+
+        context.RegisterCompilationEndAction(endContext =>
+            ReportConfigDiagnostics(endContext, configDiagnostics));
     }
 
     private static AdditionalText? FindContractFile(ImmutableArray<AdditionalText> additionalFiles)
@@ -107,9 +140,15 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeDependencyDirection(
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
-        ConcurrentDictionary<string, byte> reported)
+        ConcurrentDictionary<string, byte> reported,
+        OperationalConfig config)
     {
-        if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        if (!config.Enabled || !config.IsRuleEnabled("AARC002"))
+        {
+            return;
+        }
+
+        if (config.SkipGeneratedCode && IsGeneratedPath(context.Node.SyntaxTree.FilePath))
         {
             return;
         }
@@ -129,15 +168,20 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var targetLayer = contract.ResolveLayer(GetNamespaceName(targetType.ContainingNamespace));
+        var targetLayer = ResolveOperationalLayer(contract, GetNamespaceName(targetType.ContainingNamespace), config);
         if (targetLayer is null)
         {
             return;
         }
 
         var (sourceType, sourceLayer) = ResolveEnclosingType(name, semanticModel, contract, cancellationToken);
-        if (sourceType is null
-            || sourceLayer is null
+        if (sourceType is null)
+        {
+            return;
+        }
+
+        sourceLayer = sourceLayer ?? UnclassifiedLayerWhenAllowed(config);
+        if (sourceLayer is null
             || string.Equals(sourceLayer, targetLayer, StringComparison.Ordinal))
         {
             return;
@@ -165,8 +209,16 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             reason));
     }
 
-    private static void AnalyzeForbiddenApiUsage(OperationBlockAnalysisContext context, ArchitectureContract contract)
+    private static void AnalyzeForbiddenApiUsage(
+        OperationBlockAnalysisContext context,
+        ArchitectureContract contract,
+        OperationalConfig config)
     {
+        if (!config.Enabled || !config.IsRuleEnabled("AARC003"))
+        {
+            return;
+        }
+
         var sourceType = context.OwningSymbol switch
         {
             IMethodSymbol method => method.ContainingType,
@@ -181,7 +233,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var sourceLayer = contract.ResolveLayer(GetNamespaceName(sourceType.ContainingNamespace));
+        var sourceLayer = ResolveOperationalLayer(contract, GetNamespaceName(sourceType.ContainingNamespace), config);
         if (sourceLayer is null)
         {
             return;
@@ -199,7 +251,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         foreach (var block in context.OperationBlocks)
         {
-            if (IsGeneratedPath(block.Syntax.SyntaxTree.FilePath))
+            if (config.SkipGeneratedCode && IsGeneratedPath(block.Syntax.SyntaxTree.FilePath))
             {
                 continue;
             }
@@ -348,6 +400,57 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         return namespaceSymbol is null || namespaceSymbol.IsGlobalNamespace
             ? string.Empty
             : namespaceSymbol.ToDisplayString();
+    }
+
+    /// <summary>
+    /// Determines whether contract enforcement is required for the compilation. Reads the
+    /// operational <c>contract_required</c> property through the compilation's trees; per-tree
+    /// resolution also surfaces <c>.globalconfig</c> values (docs/configuration-design.md §6.4).
+    /// </summary>
+    private static bool IsContractRequired(
+        Compilation compilation,
+        AnalyzerConfigOptionsProvider configProvider)
+    {
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var config = ConfigReader.Read(configProvider, tree, diagnostics: null);
+            if (!config.ContractRequired)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves a layer, applying the <c>require_layer_declaration</c> operational toggle:
+    /// when the toggle is <see langword="false"/>, an unclassified namespace resolves to the
+    /// synthetic "Unclassified" layer so it participates in edge checks.
+    /// </summary>
+    private static string? ResolveOperationalLayer(
+        ArchitectureContract contract,
+        string? namespaceName,
+        OperationalConfig config)
+    {
+        return contract.ResolveLayer(namespaceName) ?? UnclassifiedLayerWhenAllowed(config);
+    }
+
+    private static string? UnclassifiedLayerWhenAllowed(OperationalConfig config)
+    {
+        return config.RequireLayerDeclaration ? null : ConfigReader.UnclassifiedLayerName;
+    }
+
+    private static void ReportConfigDiagnostics(
+        CompilationAnalysisContext context,
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> diagnostics)
+    {
+        foreach (var (descriptor, location, key, value) in diagnostics.Values)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(descriptor, location, key, value));
+        }
+
+        diagnostics.Clear();
     }
 
     private static string GetFileName(string path)
