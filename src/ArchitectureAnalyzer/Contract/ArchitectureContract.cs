@@ -113,6 +113,65 @@ public sealed class ForbiddenApiRule
 }
 
 /// <summary>
+/// Maps a marker attribute's fully qualified type name to a declared layer.
+/// </summary>
+public sealed class MarkerAttributeDefinition
+{
+    /// <summary>Creates a marker attribute mapping.</summary>
+    /// <param name="attributeFqn">Fully qualified name of the marker attribute type.</param>
+    /// <param name="layer">The declared layer the attribute classifies a type into.</param>
+    public MarkerAttributeDefinition(string attributeFqn, string layer)
+    {
+        AttributeFqn = attributeFqn;
+        Layer = layer;
+    }
+
+    /// <summary>Fully qualified name of the marker attribute type (ordinal match).</summary>
+    public string AttributeFqn { get; }
+
+    /// <summary>The declared layer the attribute maps to.</summary>
+    public string Layer { get; }
+}
+
+/// <summary>
+/// Optional declaration-rules controlling AARC004/AARC005/AARC006. When <see langword="null"/>
+/// the analyzer keeps its namespace-only behaviour (backward compatible).
+/// </summary>
+public sealed class LayerDeclaration
+{
+    /// <summary>Creates a layer-declaration ruleset.</summary>
+    /// <param name="required">When <see langword="true"/>, every non-exempt class must carry a recognized marker attribute (AARC004).</param>
+    /// <param name="markerAttributes">Marker attributes mapping attribute FQNs to declared layers.</param>
+    /// <param name="validateNamespaceConsistency">When <see langword="true"/>, attribute-vs-namespace mismatch is reported (AARC006).</param>
+    /// <param name="markerNamespace">Optional namespace whose types are exempt (the attribute definitions themselves).</param>
+    public LayerDeclaration(
+        bool required,
+        ImmutableArray<MarkerAttributeDefinition> markerAttributes,
+        bool validateNamespaceConsistency,
+        string? markerNamespace)
+    {
+        Required = required;
+        MarkerAttributes = markerAttributes.IsDefault
+            ? ImmutableArray<MarkerAttributeDefinition>.Empty
+            : markerAttributes;
+        ValidateNamespaceConsistency = validateNamespaceConsistency;
+        MarkerNamespace = string.IsNullOrWhiteSpace(markerNamespace) ? null : markerNamespace;
+    }
+
+    /// <summary>Whether every non-exempt class must declare a layer via a marker attribute.</summary>
+    public bool Required { get; }
+
+    /// <summary>Marker attributes recognized by this contract.</summary>
+    public ImmutableArray<MarkerAttributeDefinition> MarkerAttributes { get; }
+
+    /// <summary>Whether attribute-vs-namespace inconsistency is reported (AARC006).</summary>
+    public bool ValidateNamespaceConsistency { get; }
+
+    /// <summary>Namespace exempt from AARC004 (typically the marker attribute definitions).</summary>
+    public string? MarkerNamespace { get; }
+}
+
+/// <summary>
 /// An immutable, validated Architecture Contract: the single source of truth the analyzer
 /// interprets. The analyzer itself holds no architecture knowledge of its own.
 /// </summary>
@@ -120,21 +179,30 @@ public sealed class ArchitectureContract
 {
     private readonly ImmutableArray<KeyValuePair<string, string>> _namespaceRootsLongestFirst;
     private readonly ImmutableDictionary<string, ImmutableArray<ForbiddenApiRule>> _apiRulesByLayer;
+    private readonly ImmutableDictionary<string, string> _markerLayerByFqn;
 
     /// <summary>Creates a contract from already-validated sections.</summary>
     /// <param name="layers">Declared layers.</param>
     /// <param name="forbiddenDependencies">Forbidden dependency edges.</param>
     /// <param name="forbiddenApis">Forbidden API rules.</param>
+    /// <param name="layerDeclaration">Optional declaration-rules section; <see langword="null"/> keeps namespace-only behaviour.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
-        ImmutableArray<ForbiddenApiRule> forbiddenApis)
+        ImmutableArray<ForbiddenApiRule> forbiddenApis,
+        LayerDeclaration? layerDeclaration = null)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
             ? ImmutableArray<ForbiddenDependencyRule>.Empty
             : forbiddenDependencies;
         ForbiddenApis = forbiddenApis.IsDefault ? ImmutableArray<ForbiddenApiRule>.Empty : forbiddenApis;
+        LayerDeclaration = layerDeclaration;
+
+        _markerLayerByFqn = layerDeclaration?.MarkerAttributes.ToImmutableDictionary(
+            mapping => mapping.AttributeFqn,
+            mapping => mapping.Layer,
+            StringComparer.Ordinal) ?? ImmutableDictionary<string, string>.Empty;
 
         // Longest root first so that a more specific prefix wins over a shorter one declared by
         // another layer (see docs/architecture.md, "Namespace classification").
@@ -160,6 +228,19 @@ public sealed class ArchitectureContract
 
     /// <summary>Declared forbidden API rules, in contract order.</summary>
     public ImmutableArray<ForbiddenApiRule> ForbiddenApis { get; }
+
+    /// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
+    public LayerDeclaration? LayerDeclaration { get; }
+
+    /// <summary>
+    /// Resolves the declared layer a marker attribute FQN maps to.
+    /// </summary>
+    /// <param name="attributeFqn">Fully qualified marker attribute type name.</param>
+    /// <returns>The mapped layer, or <see langword="null"/> when the FQN is not a recognized marker.</returns>
+    public string? ResolveMarkerLayer(string attributeFqn)
+    {
+        return _markerLayerByFqn.TryGetValue(attributeFqn, out var layer) ? layer : null;
+    }
 
     /// <summary>
     /// Resolves the layer that owns a namespace, using longest-matching-prefix.

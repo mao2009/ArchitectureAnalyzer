@@ -259,10 +259,124 @@ public static class ArchitectureContractLoader
             }
         }
 
+        var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
+        if (layerDeclarationResult.Error is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(layerDeclarationResult.Error);
+        }
+
         return ArchitectureContractLoadResult.Success(new ArchitectureContract(
             layersBuilder.ToImmutable(),
             dependenciesBuilder.ToImmutable(),
-            apisBuilder.ToImmutable()));
+            apisBuilder.ToImmutable(),
+            layerDeclarationResult.Declaration));
+    }
+
+    private static (LayerDeclaration? Declaration, string? Error) ReadLayerDeclaration(
+        JsonElement root,
+        HashSet<string> declaredLayers)
+    {
+        if (!root.TryGetProperty("layerDeclaration", out var declaration)
+            || declaration.ValueKind == JsonValueKind.Null)
+        {
+            return (null, null);
+        }
+
+        if (declaration.ValueKind != JsonValueKind.Object)
+        {
+            return (null, "property 'layerDeclaration' must be a JSON object");
+        }
+
+        var required = false;
+        if (declaration.TryGetProperty("required", out var requiredElement)
+            && requiredElement.ValueKind != JsonValueKind.Null)
+        {
+            if (requiredElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return (null, "in 'layerDeclaration': property 'required' must be a boolean when present");
+            }
+
+            required = requiredElement.GetBoolean();
+        }
+
+        var validateNamespaceConsistency = false;
+        if (declaration.TryGetProperty("validateNamespaceConsistency", out var validateElement)
+            && validateElement.ValueKind != JsonValueKind.Null)
+        {
+            if (validateElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return (null,
+                    "in 'layerDeclaration': property 'validateNamespaceConsistency' must be a boolean when present");
+            }
+
+            validateNamespaceConsistency = validateElement.GetBoolean();
+        }
+
+        string? markerNamespace = null;
+        if (declaration.TryGetProperty("markerNamespace", out var markerNamespaceElement)
+            && markerNamespaceElement.ValueKind != JsonValueKind.Null)
+        {
+            if (markerNamespaceElement.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(markerNamespaceElement.GetString()))
+            {
+                return (null,
+                    "in 'layerDeclaration': property 'markerNamespace' must be a non-empty string when present");
+            }
+
+            markerNamespace = markerNamespaceElement.GetString();
+        }
+
+        var markerBuilder = ImmutableArray.CreateBuilder<MarkerAttributeDefinition>();
+        var seenFqns = new HashSet<string>(StringComparer.Ordinal);
+        if (!TryGetArray(declaration, "markerAttributes", out var markersElement, out var markersError))
+        {
+            return (null, "in 'layerDeclaration': " + markersError);
+        }
+
+        if (markersElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in markersElement.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object)
+                {
+                    return (null,
+                        "each entry of 'layerDeclaration.markerAttributes' must be a JSON object");
+                }
+
+                if (!TryGetNonEmptyString(entry, "attributeFqn", out var attributeFqn, out var attributeError))
+                {
+                    return (null, "in 'layerDeclaration.markerAttributes': " + attributeError);
+                }
+
+                if (!seenFqns.Add(attributeFqn!))
+                {
+                    return (null,
+                        $"duplicate marker attribute '{attributeFqn}' in layerDeclaration.markerAttributes");
+                }
+
+                if (!TryGetNonEmptyString(entry, "layer", out var layer, out var layerError))
+                {
+                    return (null, "in 'layerDeclaration.markerAttributes': " + layerError);
+                }
+
+                if (!declaredLayers.Contains(layer!))
+                {
+                    return (null,
+                        $"marker attribute '{attributeFqn}' maps to undeclared layer '{layer}'");
+                }
+
+                markerBuilder.Add(new MarkerAttributeDefinition(attributeFqn!, layer!));
+            }
+        }
+
+        var markers = markerBuilder.ToImmutable();
+        if (required && markers.IsEmpty)
+        {
+            return (null,
+                "layerDeclaration.required is true but no marker attributes are declared");
+        }
+
+        return (new LayerDeclaration(required, markers, validateNamespaceConsistency, markerNamespace), null);
     }
 
     private static string UndeclaredLayer(string layerName, string section)
