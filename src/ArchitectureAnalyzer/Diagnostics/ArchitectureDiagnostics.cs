@@ -55,7 +55,7 @@ public static class ArchitectureDiagnostics
             + "layer's forbiddenApis entries in the Architecture Contract.",
         helpLinkUri: HelpLinkPrefix + "aarc003");
 
-/// <summary>AARC008 — an architecture_analyzer operational property has an invalid value.</summary>
+    /// <summary>AARC008 — an architecture_analyzer operational property has an invalid value.</summary>
     public static readonly DiagnosticDescriptor InvalidConfigurationValue = new(
         id: "AARC008",
         title: "Invalid architecture analyzer configuration value",
@@ -105,4 +105,16 @@ public static class ArchitectureDiagnostics
             + "differs from the layer its namespace implies. Attribute overrides are intentional, "
             + "so this is informational rather than blocking.",
         helpLinkUri: HelpLinkPrefix + "aarc006");
+
+    /// <summary>AARC007 — a method carrying a configured interop attribute sits outside its allowed layer.</summary>
+    public static readonly DiagnosticDescriptor InteropBoundaryViolation = new(
+        id: "AARC007",
+        title: "Interop declaration outside allowed layer",
+        messageFormat: "Interop declaration '{0}' must be declared inside the '{1}' layer: {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A method carrying an attribute listed in interopBoundaryRules is declared "
+            + "outside the layer the rule allows. The declaration must move into the allowed layer.",
+        helpLinkUri: HelpLinkPrefix + "aarc007");
 }
