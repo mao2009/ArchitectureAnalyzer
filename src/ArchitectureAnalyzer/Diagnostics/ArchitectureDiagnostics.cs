@@ -54,4 +54,16 @@ public static class ArchitectureDiagnostics
         description: "A type whose namespace maps to a declared layer used an API listed in that "
             + "layer's forbiddenApis entries in the Architecture Contract.",
         helpLinkUri: HelpLinkPrefix + "aarc003");
+
+    /// <summary>AARC008 — an architecture_analyzer operational property has an invalid value.</summary>
+    public static readonly DiagnosticDescriptor InvalidConfigurationValue = new(
+        id: "AARC008",
+        title: "Invalid architecture analyzer configuration value",
+        messageFormat: "The value '{1}' for property '{0}' is not valid; falling back to the default",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "An architecture_analyzer.* property in .editorconfig or .globalconfig has a value "
+            + "that cannot be parsed. The property is ignored and the hardcoded default is used.",
+        helpLinkUri: HelpLinkPrefix + "aarc008");
 }
