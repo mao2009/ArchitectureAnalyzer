@@ -259,17 +259,53 @@ public static class ArchitectureContractLoader
             }
         }
 
-        var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
+var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
         if (layerDeclarationResult.Error is not null)
         {
             return ArchitectureContractLoadResult.Failure(layerDeclarationResult.Error);
+        }
+
+        var interopBuilder = ImmutableArray.CreateBuilder<InteropBoundaryRule>();
+        if (!TryGetArray(root, "interopBoundaryRules", out var interopElement, out var interopError))
+        {
+            return ArchitectureContractLoadResult.Failure(interopError!);
+        }
+
+        if (interopElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in interopElement.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object)
+                {
+                    return ArchitectureContractLoadResult.Failure(
+                        "each entry of 'interopBoundaryRules' must be a JSON object");
+                }
+
+                if (!TryGetNonEmptyString(entry, "attribute", out var attribute, out var attributeError))
+                {
+                    return ArchitectureContractLoadResult.Failure("in 'interopBoundaryRules': " + attributeError);
+                }
+
+                if (!TryGetNonEmptyString(entry, "allowedLayer", out var allowedLayer, out var allowedLayerError))
+                {
+                    return ArchitectureContractLoadResult.Failure("in 'interopBoundaryRules': " + allowedLayerError);
+                }
+
+                if (!declaredLayers.Contains(allowedLayer!))
+                {
+                    return ArchitectureContractLoadResult.Failure(UndeclaredLayer(allowedLayer!, "interopBoundaryRules"));
+                }
+
+                interopBuilder.Add(new InteropBoundaryRule(attribute!, allowedLayer!, ReadReason(entry)));
+            }
         }
 
         return ArchitectureContractLoadResult.Success(new ArchitectureContract(
             layersBuilder.ToImmutable(),
             dependenciesBuilder.ToImmutable(),
             apisBuilder.ToImmutable(),
-            layerDeclarationResult.Declaration));
+            layerDeclarationResult.Declaration,
+            interopBuilder.ToImmutable()));
     }
 
     private static (LayerDeclaration? Declaration, string? Error) ReadLayerDeclaration(

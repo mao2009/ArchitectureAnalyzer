@@ -172,6 +172,35 @@ public sealed class LayerDeclaration
 }
 
 /// <summary>
+/// A single interop-boundary rule: methods carrying a configured attribute must be declared
+/// in a specific layer (PSXR006 equivalent, generically expressed).
+/// </summary>
+public sealed class InteropBoundaryRule
+{
+    /// <summary>Creates an interop-boundary rule.</summary>
+    /// <param name="attribute">Fully qualified attribute type name, matched via
+    /// <c>AttributeClass.OriginalDefinition.ToDisplayString()</c>.</param>
+    /// <param name="allowedLayer">The single layer where methods carrying this attribute may be declared.</param>
+    /// <param name="reason">Human-readable rationale surfaced in the diagnostic message.</param>
+    public InteropBoundaryRule(string attribute, string allowedLayer, string reason)
+    {
+        Attribute = attribute;
+        AllowedLayer = allowedLayer;
+        Reason = reason;
+    }
+
+    /// <summary>Fully qualified attribute type name (for example
+    /// <c>System.Runtime.InteropServices.DllImportAttribute</c>).</summary>
+    public string Attribute { get; }
+
+    /// <summary>The layer where methods carrying this attribute must be declared.</summary>
+    public string AllowedLayer { get; }
+
+    /// <summary>Why this boundary exists, surfaced in the diagnostic message.</summary>
+    public string Reason { get; }
+}
+
+/// <summary>
 /// An immutable, validated Architecture Contract: the single source of truth the analyzer
 /// interprets. The analyzer itself holds no architecture knowledge of its own.
 /// </summary>
@@ -180,17 +209,20 @@ public sealed class ArchitectureContract
     private readonly ImmutableArray<KeyValuePair<string, string>> _namespaceRootsLongestFirst;
     private readonly ImmutableDictionary<string, ImmutableArray<ForbiddenApiRule>> _apiRulesByLayer;
     private readonly ImmutableDictionary<string, string> _markerLayerByFqn;
+    private readonly ImmutableDictionary<string, InteropBoundaryRule> _interopRulesByAttribute;
 
     /// <summary>Creates a contract from already-validated sections.</summary>
     /// <param name="layers">Declared layers.</param>
     /// <param name="forbiddenDependencies">Forbidden dependency edges.</param>
     /// <param name="forbiddenApis">Forbidden API rules.</param>
     /// <param name="layerDeclaration">Optional declaration-rules section; <see langword="null"/> keeps namespace-only behaviour.</param>
+    /// <param name="interopBoundaryRules">Interop-boundary rules; empty when the section is absent.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
         ImmutableArray<ForbiddenApiRule> forbiddenApis,
-        LayerDeclaration? layerDeclaration = null)
+        LayerDeclaration? layerDeclaration = null,
+        ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
@@ -203,6 +235,19 @@ public sealed class ArchitectureContract
             mapping => mapping.AttributeFqn,
             mapping => mapping.Layer,
             StringComparer.Ordinal) ?? ImmutableDictionary<string, string>.Empty;
+
+        InteropBoundaryRules = interopBoundaryRules ?? ImmutableArray<InteropBoundaryRule>.Empty;
+        if (InteropBoundaryRules.IsDefault)
+        {
+            InteropBoundaryRules = ImmutableArray<InteropBoundaryRule>.Empty;
+        }
+
+        _interopRulesByAttribute = InteropBoundaryRules.IsEmpty
+            ? ImmutableDictionary<string, InteropBoundaryRule>.Empty
+            : InteropBoundaryRules.ToImmutableDictionary(
+                rule => rule.Attribute,
+                rule => rule,
+                StringComparer.Ordinal);
 
         // Longest root first so that a more specific prefix wins over a shorter one declared by
         // another layer (see docs/architecture.md, "Namespace classification").
@@ -229,7 +274,7 @@ public sealed class ArchitectureContract
     /// <summary>Declared forbidden API rules, in contract order.</summary>
     public ImmutableArray<ForbiddenApiRule> ForbiddenApis { get; }
 
-    /// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
+/// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
     public LayerDeclaration? LayerDeclaration { get; }
 
     /// <summary>
@@ -240,6 +285,19 @@ public sealed class ArchitectureContract
     public string? ResolveMarkerLayer(string attributeFqn)
     {
         return _markerLayerByFqn.TryGetValue(attributeFqn, out var layer) ? layer : null;
+    }
+
+    /// <summary>Declared interop-boundary rules, in contract order.</summary>
+    public ImmutableArray<InteropBoundaryRule> InteropBoundaryRules { get; }
+
+    /// <summary>
+    /// Looks up the interop-boundary rule configured for an attribute type name.
+    /// </summary>
+    /// <param name="attributeFullName">Fully qualified attribute type name.</param>
+    /// <returns>The matching rule, or <see langword="null"/> when none is configured.</returns>
+    public InteropBoundaryRule? ResolveInteropRule(string attributeFullName)
+    {
+        return _interopRulesByAttribute.TryGetValue(attributeFullName, out var rule) ? rule : null;
     }
 
     /// <summary>

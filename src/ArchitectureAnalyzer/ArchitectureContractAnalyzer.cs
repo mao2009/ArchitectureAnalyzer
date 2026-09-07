@@ -36,7 +36,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.InvalidConfigurationValue,
         ArchitectureDiagnostics.MissingLayerDeclaration,
         ArchitectureDiagnostics.MultipleLayerDeclarations,
-        ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch);
+        ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
+        ArchitectureDiagnostics.InteropBoundaryViolation);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -113,7 +114,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
 
-        context.RegisterOperationBlockAction(blockContext =>
+context.RegisterOperationBlockAction(blockContext =>
         {
             var firstTree = blockContext.OperationBlocks.Length > 0
                 ? blockContext.OperationBlocks[0].Syntax.SyntaxTree
@@ -123,6 +124,17 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
                 : OperationalConfig.Default;
             AnalyzeForbiddenApiUsage(blockContext, contract, treeConfig);
         });
+
+        // Interop-boundary enforcement is declaration-based (method attributes), which the
+        // operation-block path can never observe. Registration is conditional so contracts
+        // without interopBoundaryRules carry zero overhead.
+        if (contract.InteropBoundaryRules.Length > 0)
+        {
+            var reportedInterop = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+            context.RegisterSyntaxNodeAction(
+                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, reportedInterop),
+                SyntaxKind.MethodDeclaration);
+        }
 
         context.RegisterCompilationEndAction(endContext =>
             ReportConfigDiagnostics(endContext, configDiagnostics));
@@ -317,7 +329,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
         }
     }
 
-    private static void AnalyzeLayerDeclaration(
+private static void AnalyzeLayerDeclaration(
         SymbolAnalysisContext context,
         ArchitectureContract contract,
         AnalyzerConfigOptionsProvider configProvider,
@@ -480,6 +492,71 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
         }
 
         return namespaceName.Length == root.Length || namespaceName[root.Length] == '.';
+    }
+
+    private static void AnalyzeInteropBoundary(
+        SyntaxNodeAnalysisContext context,
+        ArchitectureContract contract,
+        ConcurrentDictionary<string, byte> reportedInterop)
+    {
+        if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        {
+            return;
+        }
+
+        if (context.SemanticModel.GetDeclaredSymbol(context.Node, context.CancellationToken) is not IMethodSymbol method
+            || method.Locations.FirstOrDefault() is not { } declarationLocation)
+        {
+            return;
+        }
+
+        foreach (var attribute in method.GetAttributes())
+        {
+            if (attribute.AttributeClass?.OriginalDefinition?.ToDisplayString() is not { } attributeFullName)
+            {
+                continue;
+            }
+
+            var rule = contract.ResolveInteropRule(attributeFullName);
+            if (rule is null)
+            {
+                continue;
+            }
+
+            // Deterministically point at the declaration part that carries the matched
+            // attribute: the merged partial-method symbol exposes several locations with no
+            // guaranteed ordering.
+            var violationLocation = attribute.ApplicationSyntaxReference
+                ?.GetSyntax(context.CancellationToken)
+                .FirstAncestorOrSelf<MethodDeclarationSyntax>()
+                ?.Identifier.GetLocation()
+                ?? declarationLocation;
+
+            // The containing type's classification uses the same attribute-aware semantics as
+            // AARC002/AARC003 (ResolveLayer): a marker attribute on the method's type or any
+            // enclosing type wins over its namespace.
+            var declaringLayer = ResolveLayer(method.ContainingType, contract);
+            if (declaringLayer is not null
+                && string.Equals(declaringLayer, rule.AllowedLayer, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Unclassified code (declaringLayer is null) is never the allowed layer.
+            // A declarative symbol merges partial parts, so the same (method, rule) pair
+            // would otherwise be reported once per part.
+            if (!reportedInterop.TryAdd(method.ToDisplayString() + "\u001f" + attributeFullName, 0))
+            {
+                continue;
+            }
+
+            context.ReportDiagnostic(Diagnostic.Create(
+                ArchitectureDiagnostics.InteropBoundaryViolation,
+                violationLocation,
+                method.Name,
+                rule.AllowedLayer,
+                rule.Reason));
+        }
     }
 
     private static IEnumerable<IOperation> EnumerateOperations(IOperation root)
