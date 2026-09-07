@@ -33,7 +33,10 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.ArchitectureContractInvalid,
         ArchitectureDiagnostics.ForbiddenLayerDependency,
         ArchitectureDiagnostics.ForbiddenApiUsage,
-        ArchitectureDiagnostics.InvalidConfigurationValue);
+        ArchitectureDiagnostics.InvalidConfigurationValue,
+        ArchitectureDiagnostics.MissingLayerDeclaration,
+        ArchitectureDiagnostics.MultipleLayerDeclarations,
+        ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -90,6 +93,15 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         }
 
         var contract = result.Contract!;
+
+        // Layer-classification (AARC004/AARC005/AARC006) driven by symbol metadata so that
+        // marker attributes, nesting, partial parts and generic definitions are all visible.
+        if (contract.LayerDeclaration is not null)
+        {
+            context.RegisterSymbolAction(
+                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, configProvider, configDiagnostics),
+                SymbolKind.NamedType);
+        }
 
         var reportedDependencies = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         context.RegisterSyntaxNodeAction(
@@ -168,7 +180,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var targetLayer = ResolveOperationalLayer(contract, GetNamespaceName(targetType.ContainingNamespace), config);
+var targetLayer = ResolveOperationalLayer(contract, targetType, config);
         if (targetLayer is null)
         {
             return;
@@ -233,7 +245,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var sourceLayer = ResolveOperationalLayer(contract, GetNamespaceName(sourceType.ContainingNamespace), config);
+var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
         if (sourceLayer is null)
         {
             return;
@@ -305,6 +317,171 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    private static void AnalyzeLayerDeclaration(
+        SymbolAnalysisContext context,
+        ArchitectureContract contract,
+        AnalyzerConfigOptionsProvider configProvider,
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
+    {
+        if (context.Symbol is not INamedTypeSymbol type
+            || type.TypeKind != TypeKind.Class
+            || type.IsImplicitlyDeclared
+            || IsGeneratedPath(type.Locations.FirstOrDefault()?.SourceTree?.FilePath))
+        {
+            return;
+        }
+
+        var declaration = contract.LayerDeclaration;
+        if (declaration is null)
+        {
+            return;
+        }
+
+        var config = type.Locations.FirstOrDefault()?.SourceTree is { } tree
+            ? ConfigReader.Read(configProvider, tree, configDiagnostics)
+            : OperationalConfig.Default;
+
+        // Types inside the marker namespace are the attribute definitions themselves and are
+        // exempt from declaration rules.
+        if (IsWithinNamespace(type.ContainingNamespace, declaration.MarkerNamespace))
+        {
+            return;
+        }
+
+        var ownLayers = GetAppliedMarkerLayers(type, contract);
+
+        // AARC004 fires only when the contract requires declarations and the operational
+        // require_layer_declaration toggle has not relaxed enforcement for this tree.
+        if (declaration.Required
+            && config.RequireLayerDeclaration
+            && ownLayers.Count == 0
+            && !IsNestedInDeclaredLayer(type, contract))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                ArchitectureDiagnostics.MissingLayerDeclaration,
+                type.Locations.FirstOrDefault() ?? Location.None,
+                type.ToDisplayString()));
+        }
+
+        if (ownLayers.Count > 1)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                ArchitectureDiagnostics.MultipleLayerDeclarations,
+                type.Locations.FirstOrDefault() ?? Location.None,
+                type.ToDisplayString(),
+                string.Join(", ", ownLayers)));
+            return;
+        }
+
+        // AARC006 fires when the contract opts in to namespace consistency or the operational
+        // validate_namespace_layer toggle enables it for this tree.
+        if ((declaration.ValidateNamespaceConsistency || config.ValidateNamespaceLayer)
+            && ownLayers.Count == 1)
+        {
+            var declaredLayer = ownLayers[0];
+            var namespaceLayer = contract.ResolveLayer(GetNamespaceName(type.ContainingNamespace));
+            if (namespaceLayer is not null
+                && !string.Equals(declaredLayer, namespaceLayer, StringComparison.Ordinal))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
+                    type.Locations.FirstOrDefault() ?? Location.None,
+                    type.ToDisplayString(),
+                    declaredLayer,
+                    GetNamespaceName(type.ContainingNamespace),
+                    namespaceLayer));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolves the distinct declared layers a type's own marker attributes map to, in first-seen
+    /// contract order.
+    /// </summary>
+    private static List<string> GetAppliedMarkerLayers(INamedTypeSymbol type, ArchitectureContract contract)
+    {
+        var layers = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attribute in type.GetAttributes())
+        {
+            if (attribute.AttributeClass is not { } attributeClass)
+            {
+                continue;
+            }
+
+            var layer = contract.ResolveMarkerLayer(attributeClass.OriginalDefinition.ToDisplayString());
+            if (layer is not null && seen.Add(layer))
+            {
+                layers.Add(layer);
+            }
+        }
+
+        return layers;
+    }
+
+    /// <summary>
+    /// Resolves the layer a type participates in: a recognized marker attribute on the type or any
+    /// enclosing type wins, otherwise the namespace-derived layer applies.
+    /// </summary>
+    private static string? ResolveLayer(INamedTypeSymbol type, ArchitectureContract contract)
+    {
+        if (contract.LayerDeclaration is not null)
+        {
+            foreach (var current in ContainingTypeChain(type.OriginalDefinition))
+            {
+                var declared = GetAppliedMarkerLayers(current, contract);
+                if (declared.Count > 0)
+                {
+                    return declared[0];
+                }
+            }
+        }
+
+        return contract.ResolveLayer(GetNamespaceName(type.ContainingNamespace));
+    }
+
+    /// <summary>
+    /// Whether a nested type inherits a layer from an enclosing type that resolves to a known
+    /// layer (attribute or namespace), exempting it from AARC004.
+    /// </summary>
+    private static bool IsNestedInDeclaredLayer(INamedTypeSymbol type, ArchitectureContract contract)
+    {
+        if (type.ContainingType is not { } containing)
+        {
+            return false;
+        }
+
+        return ResolveLayer(containing, contract) is not null;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> ContainingTypeChain(INamedTypeSymbol type)
+    {
+        for (var current = type; current is not null; current = current.ContainingType)
+        {
+            yield return current;
+        }
+    }
+
+    private static bool IsWithinNamespace(INamespaceSymbol namespaceSymbol, string? markerNamespace)
+    {
+        if (markerNamespace is null || markerNamespace.Length == 0)
+        {
+            return false;
+        }
+
+        return IsWithin(GetNamespaceName(namespaceSymbol), markerNamespace);
+    }
+
+    private static bool IsWithin(string namespaceName, string root)
+    {
+        if (!namespaceName.StartsWith(root, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return namespaceName.Length == root.Length || namespaceName[root.Length] == '.';
+    }
+
     private static IEnumerable<IOperation> EnumerateOperations(IOperation root)
     {
         var stack = new Stack<IOperation>();
@@ -356,7 +533,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             {
                 if (semanticModel.GetDeclaredSymbol(typeDeclaration, cancellationToken) is { } type)
                 {
-                    return (type, contract.ResolveLayer(GetNamespaceName(type.ContainingNamespace)));
+                    return (type, ResolveLayer(type, contract));
                 }
 
                 return (null, null);
@@ -424,16 +601,18 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    /// Resolves a layer, applying the <c>require_layer_declaration</c> operational toggle:
-    /// when the toggle is <see langword="false"/>, an unclassified namespace resolves to the
-    /// synthetic "Unclassified" layer so it participates in edge checks.
+    /// Resolves the operational layer for a type, applying the <c>require_layer_declaration</c>
+    /// toggle: a recognized marker attribute on the type or any enclosing type wins, otherwise the
+    /// namespace-derived layer applies, and when the toggle is <see langword="false"/> an
+    /// unclassified namespace resolves to the synthetic "Unclassified" layer so it participates in
+    /// edge checks.
     /// </summary>
     private static string? ResolveOperationalLayer(
         ArchitectureContract contract,
-        string? namespaceName,
+        INamedTypeSymbol type,
         OperationalConfig config)
     {
-        return contract.ResolveLayer(namespaceName) ?? UnclassifiedLayerWhenAllowed(config);
+        return ResolveLayer(type, contract) ?? UnclassifiedLayerWhenAllowed(config);
     }
 
     private static string? UnclassifiedLayerWhenAllowed(OperationalConfig config)

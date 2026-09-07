@@ -55,7 +55,7 @@ public static class ArchitectureDiagnostics
             + "layer's forbiddenApis entries in the Architecture Contract.",
         helpLinkUri: HelpLinkPrefix + "aarc003");
 
-    /// <summary>AARC008 — an architecture_analyzer operational property has an invalid value.</summary>
+/// <summary>AARC008 — an architecture_analyzer operational property has an invalid value.</summary>
     public static readonly DiagnosticDescriptor InvalidConfigurationValue = new(
         id: "AARC008",
         title: "Invalid architecture analyzer configuration value",
@@ -66,4 +66,43 @@ public static class ArchitectureDiagnostics
         description: "An architecture_analyzer.* property in .editorconfig or .globalconfig has a value "
             + "that cannot be parsed. The property is ignored and the hardcoded default is used.",
         helpLinkUri: HelpLinkPrefix + "aarc008");
+
+    /// <summary>AARC004 — a required layer declaration is missing.</summary>
+    public static readonly DiagnosticDescriptor MissingLayerDeclaration = new(
+        id: "AARC004",
+        title: "Missing required architecture layer declaration",
+        messageFormat: "Type '{0}' must declare an architecture layer via one of the marker "
+            + "attributes configured in layerDeclaration",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "layerDeclaration.required is true and a class carries no recognized marker "
+            + "attribute (and is not exempt as nested, generated, partial-qualified or in the "
+            + "marker namespace).",
+        helpLinkUri: HelpLinkPrefix + "aarc004");
+
+    /// <summary>AARC005 — a type declares more than one distinct architecture layer.</summary>
+    public static readonly DiagnosticDescriptor MultipleLayerDeclarations = new(
+        id: "AARC005",
+        title: "Multiple distinct architecture layer declarations",
+        messageFormat: "Type '{0}' declares more than one architecture layer: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A type carries marker attributes mapping to more than one distinct layer. "
+            + "The declaration is ambiguous and must be reduced to a single layer.",
+        helpLinkUri: HelpLinkPrefix + "aarc005");
+
+    /// <summary>AARC006 — a declared layer contradicts the namespace-derived layer.</summary>
+    public static readonly DiagnosticDescriptor LayerDeclarationNamespaceMismatch = new(
+        id: "AARC006",
+        title: "Architecture layer declaration contradicts namespace layer",
+        messageFormat: "Type '{0}' declares layer '{1}' but its namespace '{2}' implies layer '{3}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "validateNamespaceConsistency is true and a type's declared (attribute) layer "
+            + "differs from the layer its namespace implies. Attribute overrides are intentional, "
+            + "so this is informational rather than blocking.",
+        helpLinkUri: HelpLinkPrefix + "aarc006");
 }
