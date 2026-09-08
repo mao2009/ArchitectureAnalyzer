@@ -337,8 +337,7 @@ private static void AnalyzeLayerDeclaration(
     {
         if (context.Symbol is not INamedTypeSymbol type
             || type.TypeKind != TypeKind.Class
-            || type.IsImplicitlyDeclared
-            || IsGeneratedPath(type.Locations.FirstOrDefault()?.SourceTree?.FilePath))
+            || type.IsImplicitlyDeclared)
         {
             return;
         }
@@ -349,7 +348,16 @@ private static void AnalyzeLayerDeclaration(
             return;
         }
 
-        var config = type.Locations.FirstOrDefault()?.SourceTree is { } tree
+        // A generated declaration part must never mask a handwritten one (AARC004/005/006):
+        // every part is scanned and the first non-generated part is the primary location. Only a
+        // type whose parts are all generated is exempt from declaration checks (#42).
+        var primary = GetPrimaryNonGeneratedDeclaration(type);
+        if (primary is null)
+        {
+            return;
+        }
+
+        var config = primary.SourceTree is { } tree
             ? ConfigReader.Read(configProvider, tree, configDiagnostics)
             : OperationalConfig.Default;
 
@@ -371,7 +379,7 @@ private static void AnalyzeLayerDeclaration(
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 ArchitectureDiagnostics.MissingLayerDeclaration,
-                type.Locations.FirstOrDefault() ?? Location.None,
+                primary,
                 type.ToDisplayString()));
         }
 
@@ -379,7 +387,7 @@ private static void AnalyzeLayerDeclaration(
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 ArchitectureDiagnostics.MultipleLayerDeclarations,
-                type.Locations.FirstOrDefault() ?? Location.None,
+                primary,
                 type.ToDisplayString(),
                 string.Join(", ", ownLayers)));
             return;
@@ -397,7 +405,7 @@ private static void AnalyzeLayerDeclaration(
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
-                    type.Locations.FirstOrDefault() ?? Location.None,
+                    primary,
                     type.ToDisplayString(),
                     declaredLayer,
                     GetNamespaceName(type.ContainingNamespace),
@@ -429,6 +437,27 @@ private static void AnalyzeLayerDeclaration(
         }
 
         return layers;
+    }
+
+    /// <summary>
+    /// Resolves the primary declaration location for declaration diagnostics (AARC004/005/006):
+    /// the first part not on a generated-code path, or null when every part is generated.
+    /// Mirrors PSXRecomp.Analyzer, which scans all declared parts so file order can never let a
+    /// generated part swallow a handwritten type's compliance checks (#42).
+    /// </summary>
+    private static Location? GetPrimaryNonGeneratedDeclaration(INamedTypeSymbol type)
+    {
+        foreach (var location in type.Locations)
+        {
+            if (location.SourceTree is null || IsGeneratedPath(location.SourceTree.FilePath))
+            {
+                continue;
+            }
+
+            return location;
+        }
+
+        return null;
     }
 
     /// <summary>
