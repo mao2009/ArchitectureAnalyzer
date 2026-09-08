@@ -115,7 +115,10 @@ difference, and a fixture that produces several findings must match on all of th
 - **Severity** — the effective severity. Included deliberately: a rule that silently degrades from
   `error` to `warning` no longer breaks a build, so it is a parity difference, not a cosmetic one.
 - **File / Line / Character** — the diagnostic's own reported location, 1-based, from
-  `Location.GetLineSpan()`.
+  `Location.GetLineSpan()`. For `ForbiddenDependency` the position is dropped from the comparison:
+  the frozen baseline deduplicates a forbidden pair at whichever reference site wins a concurrent
+  syntax-node action race, so its line/character is not stable across runs (F-D07). `ArchitectureAnalyzer`
+  deliberately reports the earliest site of the pair, which this baseline could never verify.
 - **Facts** — the information the message must carry, extracted as message *arguments*, not as
   message text.
 
@@ -277,7 +280,7 @@ Every divergence Track A recorded was exercised. Outcomes:
 | D6 interop-boundary predicate | F-I01–F-I06 | equivalent for the baseline's contract shape, as predicted |
 | D7 severity | F-N01 | confirmed; requires the pin (§6.3) |
 | D8 message/argument shape | all | absorbed by fact selection (§3.3); see P2 below for the one residue |
-| D9 source location | all | identical everywhere except F-M13/F-I03 |
+| D9 source location | all | identical everywhere except F-M13/F-I03; `ForbiddenDependency` is compared without its position because the baseline's de-dup winner is a nondeterministic reference site (F-D07) |
 | D10 marker-namespace exemption | F-A19, F-M07, F-D06 | **does not materialize** — see P1 below |
 | D11 AARC-only capabilities | all | no AARC001/AARC008 in any scenario |
 | D12 symbol-kind coverage | F-M08, F-M09 | identical |

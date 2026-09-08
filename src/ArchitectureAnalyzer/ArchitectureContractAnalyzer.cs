@@ -109,7 +109,11 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
                 SymbolKind.NamedType);
         }
 
-        var reportedDependencies = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+        // AARC002 is reported once per source-target pair. A pair can match at many sites and the
+        // analyzer driver visits syntax-node actions concurrently, so the reported site must be
+        // deterministic rather than "whichever reference won the race": defer to compilation end and
+        // keep only the earliest site per pair.
+        var reportedDependencies = new ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>>(StringComparer.Ordinal);
         context.RegisterSyntaxNodeAction(
             nodeContext =>
             {
@@ -118,6 +122,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             },
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
+        context.RegisterCompilationEndAction(endContext =>
+            ReportDependencyDiagnostics(endContext, reportedDependencies));
 
 context.RegisterOperationBlockAction(blockContext =>
         {
@@ -169,7 +175,7 @@ context.RegisterOperationBlockAction(blockContext =>
     private static void AnalyzeDependencyDirection(
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
-        ConcurrentDictionary<string, byte> reported,
+        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported,
         OperationalConfig config)
     {
         if (!config.Enabled || !config.IsRuleEnabled("AARC002"))
@@ -223,19 +229,68 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
 
         var sourceDisplay = sourceType.ToDisplayString();
         var targetDisplay = targetType.ToDisplayString();
-        if (!reported.TryAdd(sourceDisplay + "->" + targetDisplay, 0))
-        {
-            return;
-        }
-
-        context.ReportDiagnostic(Diagnostic.Create(
-            ArchitectureDiagnostics.ForbiddenLayerDependency,
+        var violation = new DependencyViolation(
             name.GetLocation(),
             sourceDisplay,
             sourceLayer,
             targetDisplay,
             targetLayer,
-            reason));
+            reason);
+        reported.GetOrAdd(sourceDisplay + "->" + targetDisplay, static _ => new ConcurrentQueue<DependencyViolation>())
+            .Enqueue(violation);
+    }
+
+    private static void ReportDependencyDiagnostics(
+        CompilationAnalysisContext context,
+        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported)
+    {
+        foreach (var violations in reported.Values)
+        {
+            // Every matching reference contributes a candidate; the pair is reported once at the
+            // earliest source site. Reducing the queue here (rather than while its entries arrive)
+            // makes the outcome independent of how the driver scheduled the concurrent callbacks.
+            DependencyViolation? earliest = null;
+            foreach (var violation in violations)
+            {
+                if (earliest is null || IsEarlier(violation, earliest))
+                {
+                    earliest = violation;
+                }
+            }
+
+            if (earliest is null)
+            {
+                continue;
+            }
+
+            context.ReportDiagnostic(Diagnostic.Create(
+                ArchitectureDiagnostics.ForbiddenLayerDependency,
+                earliest.Location,
+                earliest.SourceDisplay,
+                earliest.SourceLayer,
+                earliest.TargetDisplay,
+                earliest.TargetLayer,
+                earliest.Reason));
+        }
+
+        reported.Clear();
+    }
+
+    /// <summary>
+    /// Orders two candidates for the earliest source site. Files compare ordinally first so
+    /// candidates from different trees are ordered too.
+    /// </summary>
+    private static bool IsEarlier(DependencyViolation candidate, DependencyViolation current)
+    {
+        var comparison = string.CompareOrdinal(
+            candidate.Location.SourceTree?.FilePath ?? string.Empty,
+            current.Location.SourceTree?.FilePath ?? string.Empty);
+        if (comparison != 0)
+        {
+            return comparison < 0;
+        }
+
+        return candidate.Location.SourceSpan.Start < current.Location.SourceSpan.Start;
     }
 
     private static void AnalyzeForbiddenApiUsage(
@@ -772,4 +827,39 @@ private static void AnalyzeLayerDeclaration(
             || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase);
     }
+}
+
+/// <summary>
+/// One deduplicated AARC002 (forbidden dependency) violation, kept until compilation end so the
+/// reported source location is the earliest reference site of the pair and therefore deterministic.
+/// </summary>
+internal sealed class DependencyViolation
+{
+    public DependencyViolation(
+        Location location,
+        string sourceDisplay,
+        string sourceLayer,
+        string targetDisplay,
+        string targetLayer,
+        string reason)
+    {
+        Location = location;
+        SourceDisplay = sourceDisplay;
+        SourceLayer = sourceLayer;
+        TargetDisplay = targetDisplay;
+        TargetLayer = targetLayer;
+        Reason = reason;
+    }
+
+    public Location Location { get; }
+
+    public string SourceDisplay { get; }
+
+    public string SourceLayer { get; }
+
+    public string TargetDisplay { get; }
+
+    public string TargetLayer { get; }
+
+    public string Reason { get; }
 }

@@ -132,7 +132,7 @@ public sealed record ParityResult(
         var result = ImmutableArray.CreateBuilder<SemanticFinding>();
         foreach (var candidate in left)
         {
-            var index = remaining.IndexOf(candidate);
+            var index = remaining.FindIndex(existing => SemanticEquivalent(candidate, existing));
             if (index < 0)
             {
                 result.Add(candidate);
@@ -144,6 +144,35 @@ public sealed record ParityResult(
         }
 
         return result.ToImmutable();
+    }
+
+    /// <summary>
+    /// Subset comparison over <see cref="SemanticFinding"/>s. Exact position parity holds for every
+    /// category except <see cref="ParityCategory.ForbiddenDependency"/>: the frozen baseline
+    /// deduplicates a forbidden source-target pair at whatever reference site wins a concurrent
+    /// syntax-node action race, so its reported line/character is not stable across runs (F-D07)
+    /// and cannot be part of a deterministic comparison. That pair's position carries no
+    /// information the <c>Facts</c> do not, so the category is compared by
+    /// <c>(Severity, File, Facts)</c> instead. <see cref="ArchitectureAnalyzer"/> deliberately
+    /// reports the earliest site, which the parity suite could otherwise never verify against this
+    /// baseline.
+    /// </summary>
+    private static bool SemanticEquivalent(SemanticFinding left, SemanticFinding right)
+    {
+        if (left.Category != right.Category
+            || left.Severity != right.Severity
+            || !string.Equals(left.File, right.File, StringComparison.Ordinal)
+            || !string.Equals(left.Facts, right.Facts, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (left.Category == ParityCategory.ForbiddenDependency)
+        {
+            return true;
+        }
+
+        return left.Line == right.Line && left.Character == right.Character;
     }
 }
 
