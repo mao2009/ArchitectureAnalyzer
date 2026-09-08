@@ -41,7 +41,8 @@ public static class ArchitectureDiagnostics
         isEnabledByDefault: true,
         description: "A type whose namespace maps to one declared layer referenced a type in another "
             + "declared layer over an edge listed in the contract's forbiddenDependencies.",
-        helpLinkUri: HelpLinkPrefix + "aarc002");
+        helpLinkUri: HelpLinkPrefix + "aarc002",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
 
     /// <summary>AARC003 — a type used an API its layer forbids.</summary>
     public static readonly DiagnosticDescriptor ForbiddenApiUsage = new(

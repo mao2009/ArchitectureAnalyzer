@@ -1,10 +1,6 @@
-using System.Collections.Immutable;
 using ArchitectureAnalyzer.Diagnostics;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Testing;
-using Microsoft.CodeAnalysis.Text;
 
 namespace ArchitectureAnalyzer.Tests;
 
@@ -146,41 +142,45 @@ public sealed class ForbiddenDependencyTests
     }
 
     [Fact]
-    public async Task RepeatedReferenceToSamePair_IsReportedOnce()
+    public async Task RepeatedReferenceToSamePair_IsReportedOnceAtEarliestSite()
     {
-        const string source = """
-            namespace Sample.Application
-            {
-                public class AppService
+        // A pair is reported once, at its earliest reference site. The analyzer driver runs
+        // syntax-node actions concurrently, so without the explicit tie-break in
+        // AnalyzeDependencyDirection the reported site would be whichever reference won the race
+        // and would vary from run to run (the F-D07 flake in the cross-analyzer parity suite).
+        var test = new ArchitectureAnalyzerTest(Contract)
+        {
+            TestCode = """
+                namespace Sample.Application
                 {
+                    public class AppService
+                    {
+                    }
                 }
-            }
 
-            namespace Sample.Domain
-            {
-                public class DomainEntity
+                namespace Sample.Domain
                 {
-                    public Sample.Application.AppService First { get; set; }
+                    public class DomainEntity
+                    {
+                        public Sample.Application.AppService First { get; set; }
 
-                    public Sample.Application.AppService Second { get; set; }
+                        public Sample.Application.AppService Second { get; set; }
+                    }
                 }
-            }
-            """;
+                """,
+        };
 
-        // This assertion is deliberately about the *count*, not the location: the analyzer runs
-        // with EnableConcurrentExecution, so which of the two equivalent references wins the
-        // de-duplication race is not deterministic. CSharpAnalyzerTest always verifies exact
-        // locations, so this one case drives Roslyn directly instead.
-        var diagnostics = await RunAnalyzerAsync(Contract, source);
-        var dependencyDiagnostics = diagnostics
-            .Where(diagnostic => diagnostic.Id == ArchitectureDiagnostics.ForbiddenLayerDependency.Id)
-            .ToList();
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.Expect(
+            ArchitectureDiagnostics.ForbiddenLayerDependency,
+            12,
+            35,
+            "Sample.Domain.DomainEntity",
+            "Domain",
+            "Sample.Application.AppService",
+            "Application",
+            Reason));
 
-        Assert.Single(dependencyDiagnostics);
-        Assert.Equal(
-            "'Sample.Domain.DomainEntity' (Domain) must not depend on "
-                + "'Sample.Application.AppService' (Application): " + Reason,
-            dependencyDiagnostics[0].GetMessage(System.Globalization.CultureInfo.InvariantCulture));
+        await test.RunAsync();
     }
 
     [Fact]
@@ -209,46 +209,5 @@ public sealed class ForbiddenDependencyTests
         };
 
         await test.RunAsync();
-    }
-
-    /// <summary>
-    /// Runs the analyzer over a single source file and contract without going through
-    /// CSharpAnalyzerTest, for the cases where only the diagnostic count is deterministic.
-    /// </summary>
-    private static async Task<ImmutableArray<Diagnostic>> RunAnalyzerAsync(string contractJson, string source)
-    {
-        var references = await ReferenceAssemblies.Net.Net90
-            .ResolveAsync(LanguageNames.CSharp, CancellationToken.None);
-
-        var compilation = CSharpCompilation.Create(
-            "DedupTest",
-            new[] { CSharpSyntaxTree.ParseText(source, path: "Test0.cs") },
-            references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-
-        var options = new AnalyzerOptions(
-            ImmutableArray.Create<AdditionalText>(
-                new InMemoryAdditionalText(ArchitectureContractAnalyzer.ContractFileName, contractJson)));
-
-        var withAnalyzers = compilation.WithAnalyzers(
-            ImmutableArray.Create<DiagnosticAnalyzer>(new ArchitectureContractAnalyzer()),
-            options);
-
-        return await withAnalyzers.GetAnalyzerDiagnosticsAsync(CancellationToken.None);
-    }
-
-    private sealed class InMemoryAdditionalText : AdditionalText
-    {
-        private readonly SourceText _text;
-
-        public InMemoryAdditionalText(string path, string text)
-        {
-            Path = path;
-            _text = SourceText.From(text);
-        }
-
-        public override string Path { get; }
-
-        public override SourceText GetText(CancellationToken cancellationToken = default) => _text;
     }
 }

@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArchitectureAnalyzer.CompatibilitySuite</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!--
+      The frozen PSXRecomp.Analyzer baseline sources are compiled into this test assembly so the
+      old analyzer can be instantiated in-process. They are never shipped as an analyzer package,
+      so the packaging-oriented Roslyn analyzer rules do not apply:
+        RS2008 - analyzer release tracking files (the baseline repository does not use them either)
+        RS1036 - <EnforceExtendedAnalyzerRules>; setting it would impose rules the frozen
+                 baseline source must not be edited to satisfy.
+    -->
+    <NoWarn>$(NoWarn);RS2008;RS1036</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <!-- Pins the Roslyn workspace assemblies that Analyzer.Testing 1.1.2 would otherwise
+         resolve at its own (net461-era) floor. Mirrors src/ArchitectureAnalyzer.Tests. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.12.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzer.Testing" Version="1.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The frozen baseline attribute definitions are compiled into the scenario compilations as
+      source text, not into this assembly. See PSXRecompAnalyzerBaseline/README.md.
+    -->
+    <Compile Remove="PSXRecompAnalyzerBaseline/Architecture/PSXRecompArchitectureAttributes.cs" />
+    <EmbeddedResource Include="PSXRecompAnalyzerBaseline/Architecture/PSXRecompArchitectureAttributes.cs"
+                      LogicalName="PSXRecompArchitectureAttributes.cs" />
+  </ItemGroup>
+
+</Project>

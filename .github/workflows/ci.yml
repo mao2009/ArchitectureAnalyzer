@@ -31,7 +31,11 @@ jobs:
         run: dotnet build ArchitectureAnalyzer.sln --no-restore
 
       - name: Test
-        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --no-build
+        # Solution-wide, so the unit tests and the cross-analyzer parity suite
+        # (tests/CompatibilitySuite) both run on every push and pull request. The parity suite
+        # needs no network access to PSXRecompStudio: its baseline analyzer is a pinned in-repo
+        # copy. See docs/compatibility/compatibility-suite.md.
+        run: dotnet test ArchitectureAnalyzer.sln --no-build
 
       - name: Verify architecture gate (real dotnet build)
         # The proof that a contract violation actually fails a build, not just a test harness.
