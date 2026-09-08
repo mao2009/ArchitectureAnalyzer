@@ -3,9 +3,10 @@
 Every diagnostic in this analyzer belongs to the `Architecture` category, ships with
 `EnabledByDefault = true`, and carries no project-specific knowledge of its own — the layer
 names, namespace roots, API rules and interop attributes it names in its messages all come from
-the consuming project's `architecture.contract.json`. Most diagnostics are `Error`; AARC006 and
-AARC008 are `Warning` because they describe drift or misconfiguration rather than a known
-violation.
+the consuming project's `architecture.contract.json`. Most diagnostics are `Error`; AARC006,
+AARC008 and AARC009 are `Warning` because they describe drift or misconfiguration rather than a
+known violation. A configuration warning never means enforcement was relaxed: see the
+[fail-closed decision table](#fail-closed-configuration-policy).
 
 IDs are never reused or renumbered once shipped (see [`design.md` §7](design.md#7-diagnostic-id-namespace));
 a retired rule is marked obsolete here rather than having its ID reassigned.
@@ -20,6 +21,7 @@ a retired rule is marked obsolete here rather than having its ID reassigned.
 | [AARC006](#aarc006) | Architecture layer declaration contradicts namespace layer | Warning | Yes |
 | [AARC007](#aarc007) | Interop declaration outside allowed layer | Error | Yes |
 | [AARC008](#aarc008) | Invalid architecture analyzer configuration value | Warning | Yes |
+| [AARC009](#aarc009) | Unknown architecture analyzer configuration property | Warning | Yes |
 
 ---
 
@@ -447,7 +449,7 @@ dotnet_diagnostic.AARC007.severity = none
 |---|---|
 | **ID** | `AARC008` |
 | **Title** | Invalid architecture analyzer configuration value |
-| **Message format** | `The value '{1}' for property '{0}' is not valid; falling back to the default` |
+| **Message format** | `The value '{1}' for property '{0}' is not valid; the fail-closed fallback is applied` |
 | **Category** | `Architecture` |
 | **Severity** | `Warning` |
 | **Enabled by default** | Yes |
@@ -458,18 +460,76 @@ Arguments are the property name and the offending value.
 
 Raised when an `architecture_analyzer.*` operational property in `.editorconfig` or
 `.globalconfig` has a value that cannot be parsed (for example `require_layer_declaration = yes`
-instead of `true`/`false`). The property is ignored, the hardcoded default is used, and the build
-keeps working — a warning, because silently guessing would be worse. Reported once per invalid
-property per compilation, without a source location.
+instead of `true`/`false`). The value is ignored and the **fail-closed fallback** from the table
+below applies, so a typo can never switch a check off. Reported once per invalid property per
+compilation, without a source location.
 
-Supported properties:
-
-| Property | Type | Default | Meaning |
-|---|---|---|---|
-| `dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration` | bool | `true` | Gate AARC004 (see [AARC004](#aarc004)) |
-| `dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer` | bool | `false` | Gate AARC006 (see [AARC006](#aarc006)) |
+The diagnostic's own severity is deliberately not the safety mechanism — the fallback value is.
+Downgrading or suppressing AARC008 therefore never relaxes enforcement.
 
 ### Suppressing it
 
 Fix the typo in the configuration file. A suppressed AARC008 hides a misconfiguration that will
 re-appear every build until corrected.
+
+---
+
+## AARC009
+
+**Unknown architecture analyzer configuration property**
+
+| | |
+|---|---|
+| **ID** | `AARC009` |
+| **Title** | Unknown architecture analyzer configuration property |
+| **Message format** | `'{0}' is not a recognized architecture_analyzer property; the value '{1}' has no effect` |
+| **Category** | `Architecture` |
+| **Severity** | `Warning` |
+| **Enabled by default** | Yes |
+
+Arguments are the property name and the configured value.
+
+### Description
+
+Raised when an `.editorconfig` / `.globalconfig` entry contains `.architecture_analyzer.` but does
+not match any supported property — a typo in the property name
+(`require_layer_declration`), in the diagnostic-id segment (`AARC0002`), or a rule toggle for a
+rule that has none (`rule.AARC004.enabled`). Such an entry is invisible to a key lookup, so
+without this diagnostic the setting the author intended would silently never apply. Reported once
+per unknown key per compilation, without a source location.
+
+The property name is echoed in lower case because Roslyn stores `.editorconfig` keys lower-cased.
+
+Detection uses `AnalyzerConfigOptions.Keys`, available since Roslyn 4.4. On an older host the base
+implementation throws and unknown-key detection is skipped; the fail-closed value handling for
+recognized properties is unaffected.
+
+### Suppressing it
+
+Fix the property name. `dotnet_diagnostic.AARC009.severity = none` silences it for projects that
+deliberately keep foreign `architecture_analyzer.*` entries in a shared `.editorconfig`.
+
+---
+
+## Fail-closed configuration policy
+
+Every operational property is read with two distinct values: the **default** used when the
+property is absent, and the **invalid fallback** used when it is present but unparseable. They
+differ wherever the default is the permissive interpretation, so that a typo can only ever make
+the analyzer stricter, never weaker.
+
+| Property | Type | Accepted values | Default (absent) | Fallback (invalid) | Safety class |
+|---|---|---|---|---|---|
+| `dotnet_diagnostic.AARC001.architecture_analyzer.contract_required` | bool | `true` / `false` | `true` | `true` | fail-closed |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration` | bool | `true` / `false` | `true` | `true` | fail-closed (gates [AARC004](#aarc004)) |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer` | bool | `true` / `false` | `false` | **`true`** | fail-closed (gates [AARC006](#aarc006)) |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.generated_code` | enum | `exclude` / `include` | `exclude` | **`include`** | fail-closed (skipping narrows coverage) |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.skip_generated_code` | bool | `true` / `false` | `true` | **`false`** | fail-closed |
+| `dotnet_diagnostic.AARC003.architecture_analyzer.skip_generated_code` | bool | `true` / `false` | `true` | **`false`** | fail-closed |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC002.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC003.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
+
+Any other key containing `.architecture_analyzer.` is unknown and reported as
+[AARC009](#aarc009). This table is the single source of truth for "what happens if I typo this";
+it is mirrored in the XML documentation on `ConfigReader`.
