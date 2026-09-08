@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArchitectureAnalyzer Diagnostics | AARC001–AARC008 C# Architecture Rules</title>
+  <meta name="description" content="Overview of ArchitectureAnalyzer AARC001–AARC008 Roslyn diagnostics for architecture contracts, dependency rules, forbidden APIs, layer declarations, interop boundaries, and configuration.">
+  <link rel="canonical" href="https://mao2009.github.io/ArchitectureAnalyzer/diagnostics.html"><link rel="stylesheet" href="assets/site.css">
+</head>
+<body><header><nav><a class="brand" href="./">ArchitectureAnalyzer</a><span><a href="contract.html">Architecture Contract</a><a href="diagnostics.html">Diagnostics</a><a href="https://github.com/mao2009/ArchitectureAnalyzer">GitHub</a></span></nav></header>
+<main><h1>ArchitectureAnalyzer diagnostics</h1><p class="lead">The analyzer currently defines AARC001 through AARC008 on the main branch. Optional diagnostics activate only when the related contract sections or operational options are configured.</p>
+<table><thead><tr><th>ID</th><th>Purpose</th><th>Default</th></tr></thead><tbody>
+<tr><td>AARC001</td><td>Architecture contract could not be loaded</td><td>Error</td></tr>
+<tr><td>AARC002</td><td>Forbidden architecture dependency direction</td><td>Error</td></tr>
+<tr><td>AARC003</td><td>Forbidden API usage in an architecture layer</td><td>Error</td></tr>
+<tr><td>AARC004</td><td>Missing required architecture layer declaration</td><td>Error</td></tr>
+<tr><td>AARC005</td><td>Multiple distinct architecture layer declarations</td><td>Error</td></tr>
+<tr><td>AARC006</td><td>Layer declaration contradicts namespace classification</td><td>Warning</td></tr>
+<tr><td>AARC007</td><td>Interop declaration outside an allowed layer</td><td>Error</td></tr>
+<tr><td>AARC008</td><td>Invalid architecture analyzer configuration value</td><td>Warning</td></tr>
+</tbody></table>
+<section><h2>Severity and operational settings</h2><p>Severity is configured through standard Roslyn <code>.editorconfig</code> keys. ArchitectureAnalyzer also exposes <code>architecture_analyzer.*</code> properties for operational behavior. The architecture contract remains the source of truth for project-specific policy.</p><pre><code>[*.cs]
+dotnet_diagnostic.AARC002.severity = error
+</code></pre></section>
+<section><h2>Complete reference</h2><p>See <a href="https://github.com/mao2009/ArchitectureAnalyzer/blob/main/docs/diagnostics.md">docs/diagnostics.md</a> for triggering examples, exact rule semantics, suppression information, and the current contract surface.</p></section>
+</main><footer><p><a href="https://github.com/mao2009/ArchitectureAnalyzer">Source and tests on GitHub</a>.</p></footer></body></html>
