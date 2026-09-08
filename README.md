@@ -33,14 +33,21 @@ CI log ten minutes later), and it needs no new infrastructure. See
 
 ```
    Architecture Contract          Analyzer                Roslyn Diagnostic         dotnet build            CI Gate
- architecture.contract.json  ->  ArchitectureContract  ->  AARC001 / AARC002  ->  compilation fails  ->  workflow fails
- (JSON, in your repo,             Analyzer                 AARC003                 with an error           on non-zero exit
-  under code review)          (generic; no rules          (severity: Error)       at the exact line
+ architecture.contract.json  ->  ArchitectureContract  ->  AARC001 .. AARC008  ->  compilation fails  ->  workflow fails
+ (JSON, in your repo,             Analyzer                 (Error, except          with an error           on non-zero exit
+  under code review)          (generic; no rules            AARC006/AARC008)      at the exact line
                                of its own)
 ```
 
 The contract is the single source of truth. Changing what is enforced means editing JSON in your
 own repository — never changing or rebuilding the analyzer.
+
+**ArchitectureAnalyzer is project-agnostic.** It ships no layer names, no namespace roots, no API
+list and no attribute names; every one of those comes from the consuming project's contract. It is
+not built for, tuned to, or coupled with any particular codebase.
+[PSXRecompStudio](https://github.com/mao2009/PSXRecompStudio) appears in these docs only as the
+first consumer — an example of what a contract can express, never a requirement or an assumption
+baked into the analyzer.
 
 ## Usage
 
@@ -63,7 +70,23 @@ own repository — never changing or rebuilding the analyzer.
 }
 ```
 
+Layers plus forbidden edges and APIs are the minimum. Attribute-based layer declaration
+(`layerDeclaration`) and interop boundaries (`interopBoundaryRules`) are optional sections
+documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+
 ### 2. Wire it into the project
+
+From NuGet — the package ships the analyzer under `analyzers/dotnet/cs`, so a plain
+`PackageReference` is enough:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.0.1" PrivateAssets="all" />
+  <AdditionalFiles Include="architecture.contract.json" />
+</ItemGroup>
+```
+
+Or from source, if you vendor or submodule this repository:
 
 ```xml
 <ItemGroup>
@@ -77,6 +100,10 @@ own repository — never changing or rebuilding the analyzer.
 `OutputItemType="Analyzer"` loads the assembly as an analyzer; `ReferenceOutputAssembly="false"`
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
+The published `loach.ArchitectureAnalyzer` **0.0.1** is cut from tag `v0.0.1` and carries
+AARC001–AARC003 only; AARC004–AARC008 are merged on `main` and ship in the next tagged release.
+Use the source reference if you need them today.
+
 ### 3. Build
 
 ```
@@ -89,8 +116,8 @@ the analyzer is opt-in and does nothing without a contract.
 
 ### Adding it to an existing project
 
-1. Add ArchitectureAnalyzer to your solution (as a submodule, a vendored copy, or a project
-   reference from a sibling checkout — there is no NuGet package yet).
+1. Add the `loach.ArchitectureAnalyzer` package reference (or a submodule / project reference, per
+   the two options above).
 2. Start with **one** layer pair and **one** forbidden edge, the rule you most want to hold. A
    contract that fails the build in fifty places on day one gets deleted, not fixed.
 3. Add the two item-group lines above to each project you want governed.
@@ -119,9 +146,32 @@ turns the gate off exactly where it matters most.
 | [AARC001](docs/diagnostics.md#aarc001) | Architecture contract could not be loaded | Error |
 | [AARC002](docs/diagnostics.md#aarc002) | Forbidden architecture dependency direction | Error |
 | [AARC003](docs/diagnostics.md#aarc003) | Forbidden API usage in architecture layer | Error |
+| [AARC004](docs/diagnostics.md#aarc004) | Missing required architecture layer declaration | Error |
+| [AARC005](docs/diagnostics.md#aarc005) | Multiple distinct architecture layer declarations | Error |
+| [AARC006](docs/diagnostics.md#aarc006) | Architecture layer declaration contradicts namespace layer | Warning |
+| [AARC007](docs/diagnostics.md#aarc007) | Interop declaration outside allowed layer | Error |
+| [AARC008](docs/diagnostics.md#aarc008) | Invalid architecture analyzer configuration value | Warning |
 
-Full message formats, triggering examples and per-diagnostic suppression options are in
-[`docs/diagnostics.md`](docs/diagnostics.md).
+AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, and AARC007
+only when it declares `interopBoundaryRules`; a namespace-only contract behaves exactly as it did
+before those rules existed. Full message formats, triggering examples and per-diagnostic
+suppression options are in [`docs/diagnostics.md`](docs/diagnostics.md).
+
+## Configuration
+
+Severity is set with the standard `.editorconfig` keys, and a handful of `architecture_analyzer.*`
+properties tune how the analyzer runs (generated-code handling, per-rule switches, whether a
+missing contract is an error):
+
+```ini
+[*.cs]
+dotnet_diagnostic.AARC002.severity = error
+dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer = true
+```
+
+The full property list, scope and precedence rules are in
+[`docs/configuration.md`](docs/configuration.md). Configuration controls *how the analyzer runs*;
+the contract controls *what the rules are*.
 
 ## What this does and does not guarantee
 
@@ -129,6 +179,10 @@ Full message formats, triggering examples and per-diagnostic suppression options
 
 - A type in a declared layer that references a type across a forbidden edge fails the build.
 - A type in a declared layer that uses an API matched by a `forbiddenApis` rule fails the build.
+- With a `layerDeclaration` section, a class that declares no layer, or declares two, fails the
+  build; drift between a declared layer and its namespace is reported as a warning.
+- With `interopBoundaryRules`, a method carrying a configured attribute outside its allowed layer
+  fails the build.
 - A referenced contract file that is missing or malformed fails the build, rather than silently
   disabling enforcement.
 - The check runs everywhere `dotnet build` runs, with nothing extra to install or remember.
@@ -159,9 +213,15 @@ build then fails *with AARC002*, removes it and asserts the build passes again. 
 an in-memory compilation; this script is the evidence that enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
-Documentation map: [`docs/design.md`](docs/design.md) is the *why*,
-[`docs/architecture.md`](docs/architecture.md) is the *how* (including the full annotated contract
-schema), [`docs/diagnostics.md`](docs/diagnostics.md) is the per-rule reference.
+Documentation map:
+
+| Document | Scope |
+|---|---|
+| [`docs/design.md`](docs/design.md) | the *why* — rationale and non-goals |
+| [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
+| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC008 |
+| [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
+| [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
 ## License
 
@@ -169,8 +229,17 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## Status
 
-v0.1. The Architecture Contract format is deliberately minimal: three diagnostics, namespace-based
-layer classification, no DSL. It is expected to grow — per-type attribute overrides, native-interop
-boundary rules, multi-file contracts — driven by what real consumers actually need rather than by
-speculation. [PSXRecompStudio](https://github.com/mao2009/PSXRecompStudio), whose hardcoded
-in-house analyzer this project generalizes, is the first such consumer.
+Eight diagnostics (AARC001–AARC008), namespace **and** attribute-based layer classification,
+attribute-driven interop boundaries, and `.editorconfig` operational options. The last published
+package is `loach.ArchitectureAnalyzer` 0.0.1 (AARC001–AARC003); everything above is on `main`
+awaiting the next tag.
+
+The Architecture Contract format stays deliberately small and grows only from real consumer need —
+there is still no DSL, and multi-file contracts remain unimplemented on purpose
+([`docs/architecture.md`](docs/architecture.md#known-limitation-exactly-one-contract-per-compilation)).
+[PSXRecompStudio](https://github.com/mao2009/PSXRecompStudio), whose hardcoded in-house analyzer
+motivated several of these generic features, is the first consumer; its capability baseline is
+tracked in [`docs/compatibility/psxrecomp-analyzer-baseline.md`](docs/compatibility/psxrecomp-analyzer-baseline.md),
+with the cross-analyzer parity suite (`docs/compatibility/compatibility-suite.md`) in progress
+under [issue #33](https://github.com/mao2009/ArchitectureAnalyzer/issues/33). Nothing about that
+consumer is compiled into the analyzer.

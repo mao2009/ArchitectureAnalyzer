@@ -11,6 +11,14 @@ known violation. A configuration warning never means enforcement was relaxed: se
 IDs are never reused or renumbered once shipped (see [`design.md` §7](design.md#7-diagnostic-id-namespace));
 a retired rule is marked obsolete here rather than having its ID reassigned.
 
+See also: [`configuration.md`](configuration.md) for the `.editorconfig` properties referenced by
+the "Operational override" sections below, [`architecture.md` §2](architecture.md#2-contract-schema)
+for the contract sections each rule depends on, and
+[`compatibility/psxrecomp-analyzer-baseline.md`](compatibility/psxrecomp-analyzer-baseline.md) for
+the PSXRecomp.Analyzer rule-to-AARC mapping. Compatibility and migration detail lives under
+`docs/compatibility/` only; this file documents the rules as they are, independently of any
+consumer.
+
 | ID | Title | Severity | Enabled by default |
 |---|---|---|---|
 | [AARC001](#aarc001) | Architecture contract could not be loaded | Error | Yes |
@@ -280,15 +288,15 @@ attribute that maps it to a declared layer. The marker attributes are configured
 }
 ```
 
-Nested types are exempt (a nested member belongs to its containing type's layer by definition),
-as are types in the `markerNamespace` itself, generated code, and types whose own layer can be
-determined from a containing partial type.
+A nested type is exempt whenever an enclosing type resolves to a layer — by marker attribute or by
+namespace — since it then belongs to that layer by definition. Types in the `markerNamespace`
+itself and types in generated files are exempt too.
 
 ### Operational override
 
-AARC004 is gated by the operational toggle below, so a namespace-based project can disable the
-declaration requirement without editing the contract. Default is `true` (enforced whenever the
-contract declares `layerDeclaration`, even if `required` is unset).
+AARC004 requires **both** `layerDeclaration.required: true` in the contract and the operational
+toggle below, so a namespace-based project can drop the declaration requirement without editing
+the contract. The toggle defaults to `true`, meaning it never relaxes anything on its own.
 
 ```ini
 [*.cs]
@@ -330,9 +338,11 @@ layers its marker attributes map to.
 
 ### Description
 
-Raised when a type carries marker attributes mapping to more than one distinct layer, or when its
-declared layer conflicts across the containing-type chain. The declaration is ambiguous and must
-be reduced to a single layer; `{1}` lists the competing layers so the fix is visible at a glance.
+Raised when a type's **own** marker attributes map to more than one distinct layer. The
+declaration is ambiguous and must be reduced to a single layer; `{1}` lists the competing layers
+in contract order so the fix is visible at a glance. Attributes on enclosing types are not
+considered: a nested type that declares its own single layer is unambiguous, even when the
+container declares another one.
 
 ### Suppressing it
 
