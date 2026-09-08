@@ -34,6 +34,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.ForbiddenLayerDependency,
         ArchitectureDiagnostics.ForbiddenApiUsage,
         ArchitectureDiagnostics.InvalidConfigurationValue,
+        ArchitectureDiagnostics.UnknownConfigurationProperty,
         ArchitectureDiagnostics.MissingLayerDeclaration,
         ArchitectureDiagnostics.MultipleLayerDeclarations,
         ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
@@ -59,6 +60,10 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         var configProvider = context.Options.AnalyzerConfigOptionsProvider;
         var configDiagnostics =
             new ConcurrentDictionary<string, (DiagnosticDescriptor, Location, string, string)>();
+
+        // Mistyped property names are invisible to TryGetValue lookups, so scan the configured
+        // keys once per compilation and report the unrecognized ones (AARC009).
+        ConfigReader.ReportUnknownKeys(configProvider, context.Compilation, configDiagnostics);
 
         var contractFile = FindContractFile(context.Options.AdditionalFiles);
         if (contractFile is null)

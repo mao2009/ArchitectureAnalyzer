@@ -59,13 +59,27 @@ public static class ArchitectureDiagnostics
     public static readonly DiagnosticDescriptor InvalidConfigurationValue = new(
         id: "AARC008",
         title: "Invalid architecture analyzer configuration value",
-        messageFormat: "The value '{1}' for property '{0}' is not valid; falling back to the default",
+        messageFormat: "The value '{1}' for property '{0}' is not valid; the fail-closed fallback is applied",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "An architecture_analyzer.* property in .editorconfig or .globalconfig has a value "
-            + "that cannot be parsed. The property is ignored and the hardcoded default is used.",
+            + "that cannot be parsed. The property is ignored and the fail-closed fallback from the "
+            + "decision table applies, so a typo can never weaken enforcement.",
         helpLinkUri: HelpLinkPrefix + "aarc008");
+
+    /// <summary>AARC009 — an architecture_analyzer property name is not recognized.</summary>
+    public static readonly DiagnosticDescriptor UnknownConfigurationProperty = new(
+        id: "AARC009",
+        title: "Unknown architecture analyzer configuration property",
+        messageFormat: "'{0}' is not a recognized architecture_analyzer property; the value '{1}' has no effect",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "An .editorconfig or .globalconfig entry containing architecture_analyzer. does not "
+            + "match any supported property. A mistyped property name is silently ignored by the "
+            + "analyzer, so it is surfaced here rather than quietly leaving the intended setting off.",
+        helpLinkUri: HelpLinkPrefix + "aarc009");
 
     /// <summary>AARC004 — a required layer declaration is missing.</summary>
     public static readonly DiagnosticDescriptor MissingLayerDeclaration = new(
