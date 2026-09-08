@@ -82,7 +82,7 @@ coincidence of numbering order, not a rule.
 
 | PSXR | PSXR meaning | AARC | Behavioral divergence (one line) |
 |---|---|---|---|
-| **PSXR001** | A `class` carries no architecture marker attribute | **AARC004** | AARC004 suppresses the whole type when the *first* declaring part is a generated path; PSXR001 falls through to the first non-generated part ([D4](#d4-partial-type-location-selection)). AARC004 is additionally gated by `layerDeclaration.required` + `require_layer_declaration`; PSXR001 is always on. |
+| **PSXR001** | A `class` carries no architecture marker attribute | **AARC004** | None since [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) (merged): both fall through to the first non-generated part of a partial type ([D4](#d4-partial-type-location-selection) is closed). AARC004 is additionally gated by `layerDeclaration.required` + `require_layer_declaration`; PSXR001 is always on. |
 | **PSXR002** | A type carries marker attributes for more than one distinct layer | **AARC005** | None behaviorally. Both report once and both `return`, suppressing the namespace check (F-X01 / AARC `PartialConflictingAttributes_ReportsAarc005`). |
 | **PSXR003** | The declared layer contradicts the namespace-implied layer | **AARC006** | **Severity: PSXR003 is `Error`, AARC006 is `Warning`** ([D7](#d7-severity)). AARC006's message adds the type name; PSXR003's does not ([D8](#d8-message-and-argument-shape)). AARC006 also requires `validateNamespaceConsistency` (or the `validate_namespace_layer` toggle) to be on. |
 | **PSXR004** | Reference across a forbidden layer edge | **AARC002** | None on the enforcement path — AARC's `ResolveLayer` now walks the `ContainingType` chain exactly as PSXR's does ([D2](#d2-attribute-aware-layer-resolution-containingtype-chain)). Remaining nits: AARC002 has no marker-namespace exemption for the *target* ([D10](#d10-marker-namespace-exemption-scope)) and uses longest-prefix rather than first-match namespace resolution ([D1](#d1-namespace-classification-order)). |
@@ -308,14 +308,14 @@ names the guard that fires when the count is 0 by design.
 | F-M03 | valid | `[Domain] partial class Split {}` + a second unattributed `partial class Split {}` in the same file | 0 | attributes merge across partial parts | partial qualified by any part | AARC004 | T `:47` | — |
 | F-M04 | valid | `[Domain] class Outer { class Inner {} }` | 0 | `ResolveLayer(ContainingType) != Unknown` | nested under a resolved layer | AARC004 | T `:68` | — |
 | F-M05 | violation | `namespace Scenario; class OuterUntagged { class InnerUntagged {} }` (namespace unmapped) | 2 | PSXR001 @ (3,14) `Scenario.OuterUntagged`; PSXR001 @ (5,18) `Scenario.OuterUntagged.InnerUntagged` | — | AARC004 | T `:88` | — |
-| F-M06 | valid | the F-M05 outer class alone, in a file named `Generated.g.cs` | 0 | every declaring part is a generated path | generated path | AARC004 | T `:121` | AARC uses `Locations[0]` not "all parts" ([D4](#d4-partial-type-location-selection)) |
+| F-M06 | valid | the F-M05 outer class alone, in a file named `Generated.g.cs` | 0 | every declaring part is a generated path | generated path | AARC004 | T `:121` | `GetPrimaryNonGeneratedDeclaration` finds no handwritten part, so AARC stays silent too |
 | F-M07 | valid | `namespace PSXRecomp.Architecture; class NotAMarker {}` | 0 | containing namespace within the marker namespace | marker namespace | AARC004 | T `:138` | — |
 | F-M08 | valid | `namespace Scenario;` + `struct BareStruct`, `interface IBare`, `enum BareEnum`, `delegate void BareDelegate()`, `record struct BareRecordStruct(int)` — all unattributed | 0 | `TypeKind != Class` for all five | non-class kind | AARC004 | E | AARC004 applies the identical `TypeKind != Class` guard |
 | F-M09 | violation | `namespace Scenario; public record BareRecord(int Value);` | 1 | PSXR001 @ (3,15) `Scenario.BareRecord` — a `record class` is `TypeKind.Class` | — | AARC004 | E | — |
 | F-M10 | violation | `namespace Scenario; public sealed class Box<T> {}` | 1 | PSXR001 @ (3,21), name rendered `Scenario.Box<T>` | — | AARC004 | E | — |
 | F-M11 | violation | `namespace Scenario; public static class Helpers {}` | 1 | PSXR001 @ (3,21) — static classes are not exempt | — | AARC004 | E | — |
 | F-M12 | violation | `namespace PSXRecomp.Core; class OuterUntagged { class InnerUntagged {} }` | 1 | PSXR001 @ (3,14) on the outer **only**; the inner is exempt because `ResolveLayer(Outer)` falls back to the namespace → `Domain` | nested under a namespace-resolved layer | AARC004 | E | AARC's `IsNestedInDeclaredLayer` uses the same namespace fallback |
-| F-M13 | violation | unattributed `partial class Split` split across `Split.g.cs` (added first) and `Split.cs` | 1 | PSXR001 reported in **`Split.cs`** @ (3,29) — the first non-generated part | — | AARC004 | E | **AARC004 reports 0 here** ([D4](#d4-partial-type-location-selection)) |
+| F-M13 | violation | unattributed `partial class Split` split across `Split.g.cs` (added first) and `Split.cs` | 1 | PSXR001 reported in **`Split.cs`** @ (3,31) — the first non-generated part | — | AARC004 | E | identical since [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) (merged): AARC004 also prefers the first non-generated part ([D4](#d4-partial-type-location-selection) is closed) |
 | F-M14 | valid | `partial class Split` with `[Domain]` on the `Split.g.cs` part and nothing on `Split.cs` | 0 | attributes merge even from generated parts | partial qualified by any part | AARC004 | E | — |
 | F-M15 | valid | unattributed `partial class Split` split across `Split.g.cs` and `Split.designer.cs` | 0 | `GetPrimaryDeclarationLocation` returns null | all parts generated | AARC004 | E | — |
 
@@ -423,8 +423,9 @@ not a parity gap.
   AARC test `LibraryImport_ForbiddenLayer_ReportsAarc007` does.
 - **Two-part partial methods double the PSXR006 count.** Any parity assertion on F-I03 must expect
   2 for PSXR and 1 for AARC.
-- **Syntax-tree order matters for F-M13.** The generated part must be added to the compilation
-  *first* for the divergence to be observable.
+- **Syntax-tree order shaped F-M13.** The generated part is added to the compilation *first* —
+  the ordering that once made the divergence observable. Since #42 it no longer changes the
+  finding; the fixture keeps the order to pin the regression that closed.
 - **Fixtures need the marker attribute source.** Every `[Domain]`-style fixture must compile
   `PSXRecompArchitectureAttributes.cs` (or an AARC-side equivalent) into the test compilation.
 
@@ -433,7 +434,8 @@ not a parity gap.
 ## 5. Behavioral divergences
 
 Evaluated against `src/ArchitectureAnalyzer/**` at `33c8ea6` — i.e. **after** #30, #32, #37 and
-#38 merged. Several divergences recorded in the earlier investigation comment on #28 predate
+#38 merged — and since updated for the #39, #40, #42 and #45 merges (D4 closed, AARC008/D11
+added). Several divergences recorded in the earlier investigation comment on #28 predate
 those merges and are no longer true; they are marked **CLOSED** below rather than deleted, so the
 record of what changed survives.
 
@@ -477,10 +479,10 @@ record of what changed survives.
 | | |
 |---|---|
 | PSXR | `GetPrimaryDeclarationLocation` (`:310-323`) iterates **all** `DeclaringSyntaxReferences` and returns the `Identifier` location of the first part in a non-generated file; returns `null` (suppressing PSXR001–003) only when *every* part is generated. |
-| AARC | `AnalyzeLayerDeclaration` (`:338-344`) bails when `IsGeneratedPath(type.Locations.FirstOrDefault()?.SourceTree?.FilePath)` — it inspects **only the first** location and reports at `type.Locations.FirstOrDefault()`. |
-| Impact | For a partial class split across a generated and a hand-written part, AARC004/005/006 go silent whenever the generated part happens to be first in syntax-tree order. **AARC is weaker here** — a real missing declaration becomes invisible. |
-| Fixture | F-M13 (PSXR: 1 diagnostic in `Split.cs`; AARC: expected 0). |
-| Status | Open. **Not recorded in the #28 comment.** Small fix: mirror PSXR's "first non-generated part" walk. Recommend filing as a follow-up against the AARC004 implementation rather than blocking the baseline. |
+| AARC | `GetPrimaryNonGeneratedDeclaration` (post-#42) walks **all** `DeclaringSyntaxReferences` and prefers the first non-generated part, matching PSXR exactly; returns `null` only when *every* part is generated. |
+| Impact | Before #42, `AnalyzeLayerDeclaration` bailed on `IsGeneratedPath(type.Locations.FirstOrDefault()?.SourceTree?.FilePath)` — it inspected only the first location, so a partial class whose generated part came first made AARC004/005/006 go silent while PSXR fell through to the handwritten part. **AARC was weaker here.** |
+| Fixture | F-M13 (both sides: 1 diagnostic in `Split.cs` @ (3,31)). |
+| Status | **CLOSED.** Fixed and merged via [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42), which mirrored PSXR's "first non-generated part" walk (`ArchitectureContractAnalyzer.GetPrimaryNonGeneratedDeclaration`). F-M13 pins both sides at the same site. |
 
 ### D5. Interop de-duplication and count
 
@@ -541,7 +543,7 @@ Status: open; cosmetic except the PSXR006 → AARC007 name loss. **Not recorded 
 
 | Rule pair | PSXR location | AARC location | Divergence |
 |---|---|---|---|
-| PSXR001/002/003 → AARC004/005/006 | `TypeDeclarationSyntax.Identifier` of the first **non-generated** part | `type.Locations.FirstOrDefault()` (also the identifier token, but of the first part regardless of generated status) | Identical for single-part types; see [D4](#d4-partial-type-location-selection) for partials. |
+| PSXR001/002/003 → AARC004/005/006 | `TypeDeclarationSyntax.Identifier` of the first **non-generated** part | the `Identifier` of the first **non-generated** part via `GetPrimaryNonGeneratedDeclaration` (post-#42) | None — identical, including partials ([D4](#d4-partial-type-location-selection) is closed). |
 | PSXR004 → AARC002 | `name.GetLocation()` of the **de-dup winner** — a concurrent syntax-node action race, so an arbitrary reference site (F-D07, measured at lines 13/14/16 across runs) | `name.GetLocation()` of the **earliest** reference site, deferred to compilation end — deterministic (<code>MinLocation</code> in `AnalyzeDependencyDirection`) | AARC more deterministic. A deduplicated pair's site carries no information its facts lack, so the parity suite compares this category without position. |
 | PSXR005 → AARC003 | `operation.Syntax.GetLocation()` | `operation.Syntax.GetLocation()` | None. |
 | PSXR006 → AARC007 | `method.Locations.FirstOrDefault()` — order-dependent for partials, and reported at every part (D5) | the `Identifier` of the part that actually carries the matched attribute (`:529-533`), falling back to `Locations[0]` | AARC is deterministic; PSXR is not. AARC preferable. |
@@ -602,7 +604,7 @@ that a future change to either analyzer is caught.
 | D1 namespace order | AARC safer | No |
 | D2 `ContainingType` chain | **CLOSED** | No |
 | D3 generated-file detection | AARC superset (minus `TemporaryGeneratedFile*`) | No |
-| D4 partial-type location | **AARC weaker — a real missing declaration can go unreported** | **Follow-up** |
+| D4 partial-type location | **CLOSED** via merged #42 — both prefer the first non-generated part | No |
 | D5 interop de-duplication | AARC fewer duplicates, same faults | No |
 | D6 interop predicate | Equal for the baseline contract shape | No |
 | D7 AARC006 severity | AARC laxer unless pinned | **Migration checklist item** |
@@ -614,7 +616,8 @@ that a future change to either analyzer is caught.
 | D13 catalog contents | Contract data | No |
 | D14 extension methods | Identical shared limitation | No |
 
-**Verdict:** with D4 fixed and D7 pinned in the consuming project's `.editorconfig`,
+**Verdict:** with D4 closed (merged #42), D7 pinned in the consuming project's `.editorconfig`,
+and D9's arbitrary reference site compared without position,
 ArchitectureAnalyzer has equal-or-greater architecture-enforcement capability than the pinned
 baseline for every fixture in §4.
 

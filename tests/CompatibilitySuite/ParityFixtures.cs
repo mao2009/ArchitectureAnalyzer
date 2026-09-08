@@ -223,7 +223,9 @@ public static class ParityFixtures
             }
             """));
 
-        // The generated part is added first: that ordering is what makes the divergence observable.
+        // The generated part is added first: with the pre-fix analyzer that ordering was what made
+        // the divergence observable. #42 (merged) makes AARC004 prefer the handwritten part, so
+        // both analyzers now report the same split declaration.
         fixtures.Add(new ParityFixture(
             "F-M13",
             FixtureKind.Violation,
@@ -243,14 +245,7 @@ public static class ParityFixtures
                     {
                     }
                     """)),
-            new ExpectedDivergence(
-                DivergenceClass.CapabilityRegression,
-                PsxrOnly: nameof(ParityCategory.MissingLayerDeclaration),
-                AarcOnly: "",
-                Note: "Baseline doc D4: AARC004 inspects only Locations[0], so a partial type whose "
-                    + "first part is generated escapes the declaration check entirely, while PSXR001 "
-                    + "falls through to the first non-generated part. Tracked as a follow-up against "
-                    + "the AARC004 implementation in #42; fixing it is out of scope for #33.")));
+            ExpectedDivergence.Equivalent));
 
         fixtures.Add(new ParityFixture(
             "F-M14",

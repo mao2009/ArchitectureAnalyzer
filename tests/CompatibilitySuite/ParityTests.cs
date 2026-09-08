@@ -99,8 +99,10 @@ public sealed class ParityTests
             }
         }
 
-        // F-M13 is the one known blind spot (baseline doc D4), declared as a capability regression.
-        Assert.Equal(new[] { "F-M13 (CapabilityRegression)" }, undetected);
+        // The one former blind spot, F-M13 (baseline doc D4), was closed by the merged #42:
+        // AARC004 now prefers the handwritten part, so no violation detected by the baseline
+        // escapes the suite.
+        Assert.Empty(undetected);
     }
 
     [Fact]

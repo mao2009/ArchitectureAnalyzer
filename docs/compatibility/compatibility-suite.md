@@ -208,12 +208,12 @@ no submodule checkout, no extra credentials and no external repository access we
 
 ## 6. Results
 
-**57/57 scenarios accounted for. 55 equivalent, 2 classified differences, 0 unknown.**
+**57/57 scenarios accounted for. 56 equivalent, 1 classified difference, 0 unknown.**
 
 | Classification | Count | Fixtures |
 |---|---:|---|
-| Equivalent | 55 | all except the two below |
-| Capability regression | 1 | F-M13 |
+| Equivalent | 56 | all except the one below |
+| Capability regression | 0 | — |
 | Intentional improvement | 0 | — |
 | Harmless presentation difference | 1 | F-I03 |
 | Baseline bug | 0 | — |
@@ -225,22 +225,20 @@ groups, the generic-definition rendering (`Scenario.AppBox<T>`, F-D05), the nest
 inheritance (`Scenario.Outer.Inner` resolved to `Domain`, F-D08), the per-member de-duplication
 boundary (F-A03/F-A04/F-A13), and the forbidden-API catalogue asymmetry (F-A17/F-A18).
 
-### 6.1 F-M13 — capability regression
+### 6.1 F-M13 — closed by the merged #42
 
 | | |
 |---|---|
 | Scenario | unattributed `partial class Split`, with the generated part (`Split.g.cs`) first in syntax-tree order |
 | PSXR | `MissingLayerDeclaration[Error] /0/Split.cs(3,31) {Scenario.Split}` |
-| AARC | *(nothing)* |
-| Cause | `AnalyzeLayerDeclaration` bails on `IsGeneratedPath(type.Locations.FirstOrDefault())` — it inspects only the first location. `GetPrimaryDeclarationLocation` walks all `DeclaringSyntaxReferences` and reports at the first non-generated part. |
-| Impact | A real missing layer declaration becomes invisible whenever a hand-written partial class also has a generated part that happens to come first. AARC004/005/006 are all affected. |
-| Classification | **Capability regression.** Already recorded as D4 in the baseline document, which recommends mirroring the baseline's "first non-generated part" walk. |
-| Follow-up | [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) |
-| Status | **Not fixed here.** Fixing capability gaps is out of scope for #33; the suite pins the regression instead, so the follow-up fix will flip this fixture to `Equivalent` and the suite will demand the declaration be updated. |
+| AARC | `MissingLayerDeclaration[Error] /0/Split.cs(3,31) {Scenario.Split}` |
+| Why is this a fixture | Recorded as D4 in the baseline document: at the time of writing, `AnalyzeLayerDeclaration` bailed on `IsGeneratedPath(type.Locations.FirstOrDefault())` — inspecting only the first location — so a hand-written partial whose generated part came first escaped the declaration check entirely, while PSXR001 fell through to the first non-generated part. |
+| Resolution | [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) (merged) made `GetPrimaryNonGeneratedDeclaration` walk all `DeclaringSyntaxReferences` and prefer the first non-generated part. Both analyzers now report the same site, byte-identically. |
+| Classification | **Equivalent.** A real missing layer declaration on a generated-first partial type is reported exactly like the baseline reports it. |
 
-This is the one fixture where `EveryViolationIsStillDetectedByArchitectureAnalyzer` records a
-blind spot, and that test asserts the set is exactly `{F-M13}` — so any *second* blind spot fails
-the build immediately.
+This was the one fixture where `EveryViolationIsStillDetectedByArchitectureAnalyzer` recorded a blind
+spot; the suite pinned it as a capability regression and the merged fix flipped it to exact parity.
+That test now asserts the *empty* set — any blind spot fails the build immediately.
 
 ### 6.2 F-I03 — harmless presentation difference
 
@@ -274,13 +272,13 @@ Every divergence Track A recorded was exercised. Outcomes:
 |---|---|---|
 | D1 namespace classification order | all namespace-mapped fixtures | no observable difference, as predicted (no root is a prefix of another) |
 | D2 `ContainingType` chain (CLOSED) | F-D08, F-M04, F-M12 | confirmed closed — sources and layers match exactly |
-| D3 generated-file detection | F-M06, F-M14, F-M15, F-D11, F-I06 | equivalent; the only generated-path difference that surfaces is D4 (F-M13) |
-| D4 partial-type location | F-M13 | **confirmed, capability regression** (§6.1) |
+| D3 generated-file detection | F-M06, F-M14, F-M15, F-D11, F-I06 | equivalent; the one generated-path difference that existed (D4) is closed — see the next row |
+| D4 partial-type location | F-M13 | **closed by the merged #42** — AARC004 now prefers the first non-generated part (§6.1) |
 | D5 interop de-duplication | F-I03 | confirmed, harmless (§6.2) |
 | D6 interop-boundary predicate | F-I01–F-I06 | equivalent for the baseline's contract shape, as predicted |
 | D7 severity | F-N01 | confirmed; requires the pin (§6.3) |
 | D8 message/argument shape | all | absorbed by fact selection (§3.3); see P2 below for the one residue |
-| D9 source location | all | identical everywhere except F-M13/F-I03; `ForbiddenDependency` is compared without its position because the baseline's de-dup winner is a nondeterministic reference site (F-D07) |
+| D9 source location | all | identical everywhere except F-I03; `ForbiddenDependency` is compared without its position because the baseline's de-dup winner is a nondeterministic reference site (F-D07) |
 | D10 marker-namespace exemption | F-A19, F-M07, F-D06 | **does not materialize** — see P1 below |
 | D11 AARC-only capabilities | all | no AARC001/AARC008 in any scenario |
 | D12 symbol-kind coverage | F-M08, F-M09 | identical |
@@ -323,10 +321,8 @@ would need no change if it landed (the normalizer reduces both forms to the same
 
 | Item | Kind | Where |
 |---|---|---|
-| F-M13 / D4 — AARC004/005/006 skip a partial type whose first part is generated | capability regression, **fix in `src/ArchitectureAnalyzer`** — [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) | `ArchitectureContractAnalyzer.AnalyzeLayerDeclaration` |
 | P2 / D8 — AARC007 message should carry `method.ToDisplayString()` | nice-to-have | `ArchitectureContractAnalyzer.AnalyzeInteropBoundary` |
 | D7 — `dotnet_diagnostic.AARC006.severity = error` | migration checklist | consuming project's `.editorconfig` |
 
-The first is the only one that affects enforcement capability. It was known before this suite
-existed (baseline document D4); the suite's contribution is to hold it still, with evidence, so it
-cannot quietly grow a sibling.
+The former first item (F-M13 / D4, the only one that affected enforcement capability) is resolved by
+the merged #42; the suite's pin flipped to exact parity and the fixture now proves it mechanically.
