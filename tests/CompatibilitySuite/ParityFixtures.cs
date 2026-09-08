@@ -250,7 +250,7 @@ public static class ParityFixtures
                 Note: "Baseline doc D4: AARC004 inspects only Locations[0], so a partial type whose "
                     + "first part is generated escapes the declaration check entirely, while PSXR001 "
                     + "falls through to the first non-generated part. Tracked as a follow-up against "
-                    + "the AARC004 implementation; fixing it is out of scope for #33.")));
+                    + "the AARC004 implementation in #42; fixing it is out of scope for #33.")));
 
         fixtures.Add(new ParityFixture(
             "F-M14",

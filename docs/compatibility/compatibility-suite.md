@@ -232,6 +232,7 @@ boundary (F-A03/F-A04/F-A13), and the forbidden-API catalogue asymmetry (F-A17/F
 | Cause | `AnalyzeLayerDeclaration` bails on `IsGeneratedPath(type.Locations.FirstOrDefault())` — it inspects only the first location. `GetPrimaryDeclarationLocation` walks all `DeclaringSyntaxReferences` and reports at the first non-generated part. |
 | Impact | A real missing layer declaration becomes invisible whenever a hand-written partial class also has a generated part that happens to come first. AARC004/005/006 are all affected. |
 | Classification | **Capability regression.** Already recorded as D4 in the baseline document, which recommends mirroring the baseline's "first non-generated part" walk. |
+| Follow-up | [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) |
 | Status | **Not fixed here.** Fixing capability gaps is out of scope for #33; the suite pins the regression instead, so the follow-up fix will flip this fixture to `Equivalent` and the suite will demand the declaration be updated. |
 
 This is the one fixture where `EveryViolationIsStillDetectedByArchitectureAnalyzer` records a
@@ -319,7 +320,7 @@ would need no change if it landed (the normalizer reduces both forms to the same
 
 | Item | Kind | Where |
 |---|---|---|
-| F-M13 / D4 — AARC004/005/006 skip a partial type whose first part is generated | capability regression, **fix in `src/ArchitectureAnalyzer`** | `ArchitectureContractAnalyzer.AnalyzeLayerDeclaration` |
+| F-M13 / D4 — AARC004/005/006 skip a partial type whose first part is generated | capability regression, **fix in `src/ArchitectureAnalyzer`** — [#42](https://github.com/mao2009/ArchitectureAnalyzer/issues/42) | `ArchitectureContractAnalyzer.AnalyzeLayerDeclaration` |
 | P2 / D8 — AARC007 message should carry `method.ToDisplayString()` | nice-to-have | `ArchitectureContractAnalyzer.AnalyzeInteropBoundary` |
 | D7 — `dotnet_diagnostic.AARC006.severity = error` | migration checklist | consuming project's `.editorconfig` |
 
