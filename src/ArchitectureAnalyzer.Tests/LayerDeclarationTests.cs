@@ -599,6 +599,185 @@ public sealed class LayerDeclarationTests
     }
 
     // ------------------------------------------------------------------------------------------
+    // #42 - partial types whose first part is generated
+    // ------------------------------------------------------------------------------------------
+    // AARC004/005/006 used to inspect only the merged symbol's first location, so a partial type
+    // with a generated part first in file order (Split.g.cs before Split.cs) was treated as fully
+    // generated and declaration checks went silent. The primary location must be the first
+    // non-generated part; only an all-generated type suppresses declaration checks.
+
+    [Fact]
+    public async Task PartialClass_GeneratedPartFirst_ReportsAarc004OnHandwrittenPart()
+    {
+        var test = new ArchitectureAnalyzerTest(RequiredContract)
+        {
+            TestCode = "// partial parts supplied as files below, generated part first",
+        };
+        AddMarkerAttributes(test);
+        test.TestState.Sources.Add(("/0/Split.g.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+        test.TestState.Sources.Add(("/0/Split.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+
+        test.ExpectedDiagnostics.Add(
+            new DiagnosticResult(ArchitectureDiagnostics.MissingLayerDeclaration)
+                .WithLocation("/0/Split.cs", 3, 26)
+                .WithArguments("Sample.Domain.Split"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task PartialClass_HandwrittenPartFirst_HasSameSemantics()
+    {
+        var test = new ArchitectureAnalyzerTest(RequiredContract)
+        {
+            TestCode = "// partial parts supplied as files below, handwritten part first",
+        };
+        AddMarkerAttributes(test);
+        test.TestState.Sources.Add(("/0/Split.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+        test.TestState.Sources.Add(("/0/Split.g.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+
+        // Identical to the generated-first ordering: the handwritten part is the reported location.
+        test.ExpectedDiagnostics.Add(
+            new DiagnosticResult(ArchitectureDiagnostics.MissingLayerDeclaration)
+                .WithLocation("/0/Split.cs", 3, 26)
+                .WithArguments("Sample.Domain.Split"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task PartialClass_AllPartsGenerated_IsSilent()
+    {
+        var test = new ArchitectureAnalyzerTest(RequiredContract)
+        {
+            TestCode = "// partial parts supplied as files below, both generated",
+        };
+        AddMarkerAttributes(test);
+        test.TestState.Sources.Add(("/0/Split.g.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+        test.TestState.Sources.Add(("/0/Split.generated.cs", """
+            namespace Sample.Domain
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task PartialConflictingAttributes_GeneratedPartFirst_ReportsAarc005OnHandwrittenPart()
+    {
+        var test = new ArchitectureAnalyzerTest(RequiredContract)
+        {
+            TestCode = "// partial parts supplied as files below, generated part first",
+        };
+        AddMarkerAttributes(test);
+        test.TestState.Sources.Add(("/0/Split.g.cs", """
+            namespace Sample.Domain
+            {
+                [Sample.Arch.LayerAttr]
+                public partial class Split
+                {
+                }
+            }
+            """));
+        test.TestState.Sources.Add(("/0/Split.cs", """
+            namespace Sample.Domain
+            {
+                [Sample.Arch.AppAttr]
+                public partial class Split
+                {
+                }
+            }
+            """));
+
+        test.ExpectedDiagnostics.Add(
+            new DiagnosticResult(ArchitectureDiagnostics.MultipleLayerDeclarations)
+                .WithLocation("/0/Split.cs", 4, 26)
+                .WithArguments("Sample.Domain.Split", "Domain, Application"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task NamespaceMismatch_OnHandwrittenPart_GeneratedPartFirst_ReportsAarc006()
+    {
+        var test = new ArchitectureAnalyzerTest(OptionalContract)
+        {
+            TestCode = "// partial parts supplied as files below, generated part first",
+        };
+        AddMarkerAttributes(test);
+        test.TestState.Sources.Add(("/0/Split.g.cs", """
+            namespace Sample.Application
+            {
+                public partial class Split
+                {
+                }
+            }
+            """));
+        // Both parts must share a namespace for the partial symbol to merge; the handwritten part
+        // carries the namespace-contradicting Domain marker.
+        test.TestState.Sources.Add(("/0/Split.cs", """
+            namespace Sample.Application
+            {
+                [Sample.Arch.LayerAttr]
+                public partial class Split
+                {
+                }
+            }
+            """));
+
+        test.ExpectedDiagnostics.Add(
+            new DiagnosticResult(ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch)
+                .WithLocation("/0/Split.cs", 4, 26)
+                .WithSeverity(DiagnosticSeverity.Warning)
+                .WithArguments(
+                    "Sample.Application.Split",
+                    "Domain",
+                    "Sample.Application",
+                    "Application"));
+
+        await test.RunAsync();
+    }
+
+    // ------------------------------------------------------------------------------------------
     // #30 integration seam: operational toggles acting on AARC004 / AARC006
     // ------------------------------------------------------------------------------------------
 
