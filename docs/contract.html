@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture Contract | JSON Rules for C# ArchitectureAnalyzer</title>
+  <meta name="description" content="Learn how ArchitectureAnalyzer uses architecture.contract.json to define C# layers, forbidden dependencies, forbidden APIs, layer declarations, and interop boundaries.">
+  <link rel="canonical" href="https://mao2009.github.io/ArchitectureAnalyzer/contract.html"><link rel="stylesheet" href="assets/site.css">
+</head>
+<body><header><nav><a class="brand" href="./">ArchitectureAnalyzer</a><span><a href="contract.html">Architecture Contract</a><a href="diagnostics.html">Diagnostics</a><a href="https://github.com/mao2009/ArchitectureAnalyzer">GitHub</a></span></nav></header>
+<main><h1>The Architecture Contract</h1><p class="lead">ArchitectureAnalyzer keeps application-specific architecture policy in a small JSON file owned by the consuming repository.</p>
+<section><h2>Minimal example</h2><pre><code>{
+  "layers": [
+    { "name": "Domain", "namespaceRoots": ["MyApp.Domain"] },
+    { "name": "Application", "namespaceRoots": ["MyApp.Application"] }
+  ],
+  "forbiddenDependencies": [
+    { "from": "Domain", "to": "Application", "reason": "Keep Domain independent." }
+  ],
+  "forbiddenApis": [
+    { "layer": "Domain", "type": "System.Console", "reason": "No console I/O in Domain." }
+  ]
+}</code></pre></section>
+<section><h2>Contract responsibilities</h2><ul><li><strong>layers</strong> classify code by configured namespace roots.</li><li><strong>forbiddenDependencies</strong> define disallowed layer-to-layer edges.</li><li><strong>forbiddenApis</strong> define APIs that selected layers may not use.</li><li><strong>layerDeclaration</strong> can optionally require and validate configured architecture attributes.</li><li><strong>interopBoundaryRules</strong> can optionally constrain configured interop declarations to allowed layers.</li></ul></section>
+<section><h2>How enforcement runs</h2><p>Add the NuGet analyzer and register the JSON file as an <code>AdditionalFiles</code> item. ArchitectureAnalyzer reads the contract during Roslyn analysis and reports diagnostics in normal builds and IDE analysis.</p><pre><code>&lt;PackageReference Include="loach.ArchitectureAnalyzer" Version="..." PrivateAssets="all" /&gt;
+&lt;AdditionalFiles Include="architecture.contract.json" /&gt;</code></pre></section>
+<section><h2>Contract versus configuration</h2><p>The contract answers <em>what architecture rules exist</em>. Standard Roslyn severity settings and <code>architecture_analyzer.*</code> options answer <em>how the analyzer runs</em>. For the complete schema, see <a href="https://github.com/mao2009/ArchitectureAnalyzer/blob/main/docs/architecture.md">docs/architecture.md</a>.</p></section>
+</main><footer><p><a href="https://github.com/mao2009/ArchitectureAnalyzer">ArchitectureAnalyzer on GitHub</a>.</p></footer></body></html>
