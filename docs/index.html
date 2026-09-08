@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArchitectureAnalyzer | C# Roslyn Analyzer for Enforcing Software Architecture</title>
+  <meta name="description" content="ArchitectureAnalyzer is an open-source C# Roslyn analyzer that enforces architecture contracts, dependency directions, forbidden APIs, layer declarations, and interop boundaries at build time.">
+  <link rel="canonical" href="https://mao2009.github.io/ArchitectureAnalyzer/">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header><nav><a class="brand" href="./">ArchitectureAnalyzer</a><span><a href="contract.html">Architecture Contract</a><a href="diagnostics.html">Diagnostics</a><a href="https://github.com/mao2009/ArchitectureAnalyzer">GitHub</a></span></nav></header>
+<main>
+<section class="hero"><p class="eyebrow">Architecture as executable policy</p><h1>ArchitectureAnalyzer</h1><p class="lead">A project-agnostic Roslyn analyzer for C# that reads a JSON Architecture Contract from your repository and turns architecture rules into compiler diagnostics.</p><p>Declare layers, forbidden dependency directions, forbidden APIs, optional layer attributes, and interop boundaries. Normal IDE analysis, <code>dotnet build</code>, and CI then check the code against that contract.</p><p><a class="button" href="https://www.nuget.org/packages/loach.ArchitectureAnalyzer">Get it on NuGet</a> <a class="button secondary" href="https://github.com/mao2009/ArchitectureAnalyzer">View on GitHub</a></p></section>
+<section><h2>What it enforces</h2><div class="grid"><article><h3>Layer dependencies</h3><p>Prevent inner layers from depending on forbidden outer layers or other disallowed architecture edges.</p></article><article><h3>Forbidden APIs</h3><p>Keep I/O, framework calls, or other APIs out of layers where your architecture contract forbids them.</p></article><article><h3>Layer declarations</h3><p>Optionally require configured architecture attributes and detect missing, conflicting, or namespace-mismatched declarations.</p></article><article><h3>Interop boundaries</h3><p>Restrict configured interop declarations to the layers where native or external boundaries are intended to live.</p></article></div></section>
+<section><h2>Why ArchitectureAnalyzer?</h2><p>Architecture documents and ADRs record intent, but they do not enforce it. ArchitectureAnalyzer makes selected structural rules executable so architecture drift can surface during development instead of depending entirely on manual review.</p></section>
+<section><h2>Project-agnostic by design</h2><p>The analyzer contains no application-specific layer names, namespace roots, dependency graph, or API policy. Those rules live in the consuming repository's <code>architecture.contract.json</code>.</p></section>
+</main>
+<footer><p>ArchitectureAnalyzer is an independent open-source C# project released under the MIT License.</p></footer>
+</body>
+</html>
