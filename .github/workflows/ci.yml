@@ -42,3 +42,9 @@ jobs:
         run: |
           chmod +x tests/GateVerification/verify-gate.sh
           tests/GateVerification/verify-gate.sh
+
+      - name: Verify packaged analyzer consumer E2E
+        # Pack the current source to a temporary local feed, then consume that package from a
+        # standalone project with an isolated NuGet cache. This catches packaging/MSBuild wiring
+        # regressions that project-reference tests cannot.
+        run: bash tests/PackageConsumer/verify-package-consumer.sh
