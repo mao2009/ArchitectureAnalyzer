@@ -58,7 +58,7 @@ public static class ArchitectureContractLoader
     public const string ContractFileName = "architecture.contract.json";
 
     /// <summary>The newest Architecture Contract schema understood by this analyzer.</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>The oldest explicit schema version this analyzer still accepts.</summary>
     public const int MinimumSupportedSchemaVersion = 1;
@@ -230,6 +230,16 @@ public static class ArchitectureContractLoader
             }
         }
 
+        var allowedDependenciesResult = ReadAllowedDependencies(
+            root,
+            schemaVersionResult.Version,
+            declaredLayers,
+            dependencyKeys);
+        if (allowedDependenciesResult.Error is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(allowedDependenciesResult.Error);
+        }
+
         var apisBuilder = ImmutableArray.CreateBuilder<ForbiddenApiRule>();
         if (!TryGetArray(root, "forbiddenApis", out var apisElement, out var apisError))
         {
@@ -354,7 +364,125 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             apisBuilder.ToImmutable(),
             layerDeclarationResult.Declaration,
             interopBuilder.ToImmutable(),
-            unclassifiedCodeResult.Policy));
+            unclassifiedCodeResult.Policy,
+            allowedDependenciesResult.Rules));
+    }
+
+    private static (ImmutableArray<AllowedDependencyRule> Rules, string? Error) ReadAllowedDependencies(
+        JsonElement root,
+        int schemaVersion,
+        HashSet<string> declaredLayers,
+        HashSet<(string From, string To)> forbiddenDependencyKeys)
+    {
+        var propertyCount = 0;
+        var section = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "allowedDependencies", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            propertyCount++;
+            if (propertyCount > 1)
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    "property 'allowedDependencies' must not appear more than once");
+            }
+
+            section = property.Value;
+        }
+
+        if (propertyCount == 0 || section.ValueKind == JsonValueKind.Null)
+        {
+            return (ImmutableArray<AllowedDependencyRule>.Empty, null);
+        }
+
+        if (schemaVersion < 3)
+        {
+            return (ImmutableArray<AllowedDependencyRule>.Empty,
+                "property 'allowedDependencies' requires schemaVersion 3");
+        }
+
+        if (section.ValueKind != JsonValueKind.Array)
+        {
+            return (ImmutableArray<AllowedDependencyRule>.Empty,
+                "property 'allowedDependencies' must be a JSON array");
+        }
+
+        var rules = ImmutableArray.CreateBuilder<AllowedDependencyRule>();
+        var seenSources = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var entry in section.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    "each entry of 'allowedDependencies' must be a JSON object");
+            }
+
+            if (!TryGetNonEmptyString(entry, "from", out var from, out var fromError))
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    "in 'allowedDependencies': " + fromError);
+            }
+
+            if (!declaredLayers.Contains(from!))
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    UndeclaredLayer(from!, "allowedDependencies"));
+            }
+
+            if (!seenSources.Add(from!))
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    $"allowed dependency source '{from}' is declared more than once");
+            }
+
+            if (!entry.TryGetProperty("to", out var targetsElement)
+                || targetsElement.ValueKind != JsonValueKind.Array)
+            {
+                return (ImmutableArray<AllowedDependencyRule>.Empty,
+                    $"property 'to' of allowedDependencies source '{from}' must be a JSON array");
+            }
+
+            var targets = ImmutableArray.CreateBuilder<string>();
+            var seenTargets = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var targetElement in targetsElement.EnumerateArray())
+            {
+                if (targetElement.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(targetElement.GetString()))
+                {
+                    return (ImmutableArray<AllowedDependencyRule>.Empty,
+                        $"each entry of 'to' for allowedDependencies source '{from}' must be a non-empty string");
+                }
+
+                var target = targetElement.GetString()!;
+                if (!declaredLayers.Contains(target))
+                {
+                    return (ImmutableArray<AllowedDependencyRule>.Empty,
+                        UndeclaredLayer(target, "allowedDependencies"));
+                }
+
+                if (!seenTargets.Add(target))
+                {
+                    return (ImmutableArray<AllowedDependencyRule>.Empty,
+                        $"allowed dependency '{from}' -> '{target}' is declared more than once");
+                }
+
+                if (forbiddenDependencyKeys.Contains((from!, target)))
+                {
+                    return (ImmutableArray<AllowedDependencyRule>.Empty,
+                        $"dependency '{from}' -> '{target}' is declared as both allowed and forbidden");
+                }
+
+                targets.Add(target);
+            }
+
+            rules.Add(new AllowedDependencyRule(from!, targets.ToImmutable(), ReadReason(entry)));
+        }
+
+        return (rules.ToImmutable(), null);
     }
 
     private static (LayerDeclaration? Declaration, string? Error) ReadLayerDeclaration(
