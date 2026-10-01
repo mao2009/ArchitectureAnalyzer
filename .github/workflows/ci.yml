@@ -49,6 +49,12 @@ jobs:
           chmod +x tests/MultiProjectGate/verify-multi-project.sh
           tests/MultiProjectGate/verify-multi-project.sh
 
+      - name: Verify baseline ratcheting and generator
+        # Existing debt is tolerated, new debt fails, and regeneration prunes fixed entries.
+        run: |
+          chmod +x tests/BaselineGate/verify-baseline.sh
+          tests/BaselineGate/verify-baseline.sh
+
       - name: Restore representative performance benchmark
         run: dotnet restore tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
 
