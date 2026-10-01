@@ -353,7 +353,7 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
-    public void Loader_UnsupportedSchemaVersion_Fails()
+    public void Loader_SchemaVersionFive_Succeeds()
     {
         const string contract = """
             {
@@ -366,9 +366,26 @@ public sealed class ContractLoadingTests
 
         var result = ArchitectureContractLoader.Load(contract);
 
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnsupportedSchemaVersion_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 6,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
         Assert.False(result.Succeeded);
         Assert.Equal(
-            "unsupported schemaVersion '5'; supported schemaVersions are 1 through 4",
+            "unsupported schemaVersion '6'; supported schemaVersions are 1 through 5",
             result.ErrorReason);
     }
 
@@ -377,7 +394,7 @@ public sealed class ContractLoadingTests
     {
         const string contract = """
             {
-              "schemaVersion": 5,
+              "schemaVersion": 6,
               "layers": [
                 { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
               ]
@@ -391,7 +408,7 @@ public sealed class ContractLoadingTests
         test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
             ArchitectureDiagnostics.ArchitectureContractInvalid,
             ArchitectureContractAnalyzer.ContractFileName,
-            "unsupported schemaVersion '5'; supported schemaVersions are 1 through 4"));
+            "unsupported schemaVersion '6'; supported schemaVersions are 1 through 5"));
 
         await test.RunAsync();
     }
@@ -879,6 +896,319 @@ public sealed class ContractLoadingTests
         Assert.False(defaultResult.Contract!.DependencyGraph!.RequireAcyclic);
         Assert.True(strictResult.Succeeded, strictResult.ErrorReason);
         Assert.True(strictResult.Contract!.DependencyGraph!.RequireAcyclic);
+    }
+
+    [Fact]
+    public void Loader_Exceptions_RequiresSchemaV5()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 4,
+              "layers": [],
+              "exceptions": []
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'exceptions' requires schemaVersion 5", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("true")]
+    public void Loader_Exceptions_MustBeArray(string sectionJson)
+    {
+        var contract = "{ \"schemaVersion\": 5, \"layers\": [], \"exceptions\": "
+            + sectionJson + " }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'exceptions' must be a JSON array", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateExceptionsProperty_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [],
+              "exceptions": []
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'exceptions' must not appear more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc002Exception_Parses()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "targetType": "Sample.Application.LegacyService",
+                  "justification": "Tracked by ARCH-123."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+        var exception = Assert.IsType<DependencyArchitectureException>(Assert.Single(result.Contract!.Exceptions));
+        Assert.Equal("AARC002", exception.DiagnosticId);
+        Assert.Equal("Sample.Domain.LegacyBridge", exception.SourceType);
+        Assert.Equal("Sample.Application.LegacyService", exception.TargetType);
+        Assert.Equal("Tracked by ARCH-123.", exception.Justification);
+    }
+
+    [Fact]
+    public void Loader_Aarc003Exception_Parses()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "apiType": "System.DateTime",
+                  "member": "Now",
+                  "justification": "Tracked by ARCH-456."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+        var exception = Assert.IsType<ForbiddenApiArchitectureException>(Assert.Single(result.Contract!.Exceptions));
+        Assert.Equal("AARC003", exception.DiagnosticId);
+        Assert.Equal("Sample.Domain.LegacyClock", exception.SourceType);
+        Assert.Equal("System.DateTime", exception.ApiType);
+        Assert.Equal("Now", exception.Member);
+        Assert.Equal("Tracked by ARCH-456.", exception.Justification);
+    }
+
+    [Theory]
+    [InlineData("AARC001")]
+    [InlineData("AARC010")]
+    [InlineData("AARC011")]
+    public void Loader_UnsupportedExceptionDiagnostic_Fails(string diagnosticId)
+    {
+        var contract = "{ \"schemaVersion\": 5, \"layers\": [], \"exceptions\": ["
+            + "{ \"diagnosticId\": \"" + diagnosticId
+            + "\", \"sourceType\": \"Sample.Type\", \"justification\": \"No.\" } ] }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            $"exceptions diagnosticId '{diagnosticId}' is not supported; supported IDs are AARC002 and AARC003",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_ExceptionJustification_IsRequired()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "targetType": "Sample.Application.LegacyService"
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("in 'exceptions': required property 'justification' is missing", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc002Exception_MissingTargetType_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("in AARC002 exception: required property 'targetType' is missing", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc002Exception_ApiFieldsFail()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "targetType": "Sample.Application.LegacyService",
+                  "apiType": "System.DateTime",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("AARC002 exception must not declare 'apiType' or 'member'", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc003Exception_MissingMember_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "apiType": "System.DateTime",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("in AARC003 exception: required property 'member' is missing", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc003Exception_TargetTypeFieldFails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "apiType": "System.DateTime",
+                  "member": "Now",
+                  "targetType": "Sample.Other",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("AARC003 exception must not declare 'targetType'", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateAarc002Exception_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "targetType": "Sample.Application.LegacyService",
+                  "justification": "First."
+                },
+                {
+                  "diagnosticId": "AARC002",
+                  "sourceType": "Sample.Domain.LegacyBridge",
+                  "targetType": "Sample.Application.LegacyService",
+                  "justification": "Second."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            "AARC002 exception 'Sample.Domain.LegacyBridge' -> 'Sample.Application.LegacyService' is declared more than once",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateAarc003Exception_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "apiType": "System.DateTime",
+                  "member": "Now",
+                  "justification": "First."
+                },
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "apiType": "System.DateTime",
+                  "member": "Now",
+                  "justification": "Second."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            "AARC003 exception 'Sample.Domain.LegacyClock' -> 'System.DateTime.Now' is declared more than once",
+            result.ErrorReason);
     }
 
     [Fact]
