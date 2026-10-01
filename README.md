@@ -260,9 +260,6 @@ schema-v2 strict architecture coverage, attribute-driven interop boundaries, and
 operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009);
 schema v2 / AARC010 are on `main` awaiting the next tag.
 
-The published NuGet package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009).
-Schema v2 / AARC010 are currently on `main` awaiting the next tag.
-
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
 ([`docs/architecture.md`](docs/architecture.md#exactly-one-contract-per-compilation)).
