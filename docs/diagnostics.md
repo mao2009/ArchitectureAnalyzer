@@ -11,6 +11,12 @@ known violation. A configuration warning never means enforcement was relaxed: se
 IDs are never reused or renumbered once shipped (see [`design.md` §7](design.md#7-diagnostic-id-namespace));
 a retired rule is marked obsolete here rather than having its ID reassigned.
 
+Schema-v5 contract exceptions are available only for exact AARC002 and AARC003 cases. They are
+checked before a diagnostic is reported; standard Roslyn severity, `#pragma`,
+`SuppressMessageAttribute` and `NoWarn` still apply afterward. Long-lived intentional exceptions
+should prefer the contract form because it requires justification and cannot wildcard a layer or
+namespace. See [`architecture-exceptions-design.md`](architecture-exceptions-design.md).
+
 See also: [`configuration.md`](configuration.md) for the `.editorconfig` properties referenced by
 the "Operational override" sections below, [`architecture.md` §2](architecture.md#2-contract-schema)
 for the contract sections each rule depends on, and
@@ -190,26 +196,46 @@ public sealed class Order
 Here `Domain -> Shared` is allowed, `Domain -> Application` reports AARC002, and source layers
 without an allowlist entry remain permissive unless an explicit forbidden edge applies.
 
-### Suppressing it
+### Exceptions and suppression
 
-For a genuinely justified single exception, suppress at the narrowest scope and leave the
-justification next to it:
+For a deliberate long-lived exception, schema v5 recommends an exact contract entry with a
+required justification:
+
+```json
+"exceptions": [
+  {
+    "diagnosticId": "AARC002",
+    "sourceType": "MyApp.Domain.LegacyBridge",
+    "targetType": "MyApp.Application.OrderService",
+    "justification": "Temporary compatibility bridge tracked by ARCH-123."
+  }
+]
+```
+
+This suppresses only that exact source-type -> target-type pair. Another Domain type referencing
+the same Application type still reports AARC002, as does `LegacyBridge` referencing a different
+Application type.
+
+Normal Roslyn suppression remains available for temporary/local cases:
 
 ```csharp
-#pragma warning disable AARC002 // Justification: temporary shim, tracked by #123.
+#pragma warning disable AARC002 // Temporary local suppression; tracked by #123.
     public MyApp.Application.OrderService Service { get; set; }
 #pragma warning restore AARC002
 ```
 
-To relax or disable the rule for a directory or the whole project:
+A directory/project severity override is broader and should be treated as rollout/tooling
+configuration rather than architecture intent:
 
 ```ini
-[*.cs]
-dotnet_diagnostic.AARC002.severity = warning   # or: none
+[legacy/**.cs]
+dotnet_diagnostic.AARC002.severity = warning
 ```
 
-Prefer changing the contract over suppressing the diagnostic. A suppression hides one violation;
-editing the contract states the architecture you actually intend, in a file that gets reviewed.
+Root-level `severity = none` or project-wide `NoWarn` is discouraged because it hides unrelated
+violations. See
+[`architecture-exceptions-design.md`](architecture-exceptions-design.md) for the full precedence
+and audit policy.
 
 ---
 
@@ -267,23 +293,36 @@ public sealed class Order
 }
 ```
 
-### Suppressing it
+### Exceptions and suppression
+
+For a deliberate long-lived API exception, schema v5 matches the exact source type, API declaring
+type and normalized member name:
+
+```json
+"exceptions": [
+  {
+    "diagnosticId": "AARC003",
+    "sourceType": "MyApp.Domain.LegacyDiagnostics",
+    "apiType": "System.Console",
+    "member": "WriteLine",
+    "justification": "Bootstrap diagnostics path tracked by ADR-014."
+  }
+]
+```
+
+The required `member` keeps the exception narrow: `Console.ReadLine` in the same source type
+still reports AARC003. Property accessors use the property name; constructors use `.ctor`.
+
+For genuinely local/temporary suppression, ordinary Roslyn controls remain available:
 
 ```csharp
-#pragma warning disable AARC003 // Justification: diagnostic-only bootstrap path, see ADR-014.
+#pragma warning disable AARC003 // Temporary bootstrap path; see ADR-014.
         System.Console.WriteLine("total");
 #pragma warning restore AARC003
 ```
 
-or, per project/directory:
-
-```ini
-[*.cs]
-dotnet_diagnostic.AARC003.severity = none
-```
-
-As with AARC002, narrowing the rule in the contract (for example by adding a `member` so only
-one member is forbidden) is usually better than suppressing the diagnostic at a call site.
+Broad directory/project suppression remains possible through `.editorconfig`, but should be used
+for migration rather than to encode a permanent architecture exception.
 
 ---
 
