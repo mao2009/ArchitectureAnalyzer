@@ -136,8 +136,10 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var contract = result.Contract!;
 
-        var baseline = ArchitectureBaseline.Empty;
         var baselineMode = ConfigReader.ReadBaselineMode(configProvider, configDiagnostics);
+        var baseline = baselineMode == ConfigReader.BaselineMode.Ignore
+            ? ArchitectureBaseline.Capturing
+            : ArchitectureBaseline.Empty;
         if (baselineMode == ConfigReader.BaselineMode.Enforce)
         {
             var baselineFiles = FindAdditionalFiles(
