@@ -359,6 +359,42 @@ public sealed class ContractLoadingTests
         Assert.Equal("property 'schemaVersion' must be an integer when present", result.ErrorReason);
     }
 
+    [Theory]
+    [InlineData("{ \"schemaVersion\": 2, \"schemaVersion\": 1, \"layers\": [] }")]
+    [InlineData("{ \"schemaVersion\": 1, \"schemaVersion\": 2, \"layers\": [] }")]
+    public void Loader_DuplicateSchemaVersion_FailsRegardlessOfOrder(string contract)
+    {
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'schemaVersion' must not appear more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public async Task DuplicateSchemaVersion_ReportsContractInvalid()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var test = new ArchitectureAnalyzerTest(contract)
+        {
+            TestCode = CleanSource,
+        };
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "property 'schemaVersion' must not appear more than once"));
+
+        await test.RunAsync();
+    }
+
     [Fact]
     public void Loader_DuplicateNamespaceRoot_Fails()
     {
