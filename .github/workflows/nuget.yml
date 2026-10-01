@@ -55,28 +55,47 @@ jobs:
         run: dotnet restore ArchitectureAnalyzer.sln
 
       - name: Build
-        run: dotnet build src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj --configuration Release --no-restore
+        run: |
+          dotnet build src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj --configuration Release --no-restore
+          dotnet build tools/ArchitectureAnalyzer.Baseline/ArchitectureAnalyzer.Baseline.csproj --configuration Release --no-restore
 
       - name: Test
         run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --configuration Release
 
       - name: Pack
-        run: >-
-          dotnet pack src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj
-          --configuration Release
-          --no-build
-          --output ./artifacts
-          -p:PackageVersion=${{ steps.version.outputs.version }}
-          -p:Version=${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          dotnet pack src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj \
+            --configuration Release \
+            --no-build \
+            --output ./artifacts \
+            -p:PackageVersion=${{ steps.version.outputs.version }} \
+            -p:Version=${{ steps.version.outputs.version }}
+
+          dotnet pack tools/ArchitectureAnalyzer.Baseline/ArchitectureAnalyzer.Baseline.csproj \
+            --configuration Release \
+            --no-build \
+            --output ./artifacts \
+            -p:PackageVersion=${{ steps.version.outputs.version }} \
+            -p:Version=${{ steps.version.outputs.version }}
 
       - name: Verify package contents
         shell: bash
         run: |
           set -euo pipefail
-          package=(./artifacts/*.nupkg)
-          test "${#package[@]}" -eq 1
-          unzip -l "${package[0]}"
-          unzip -l "${package[0]}" | grep -q 'analyzers/dotnet/cs/ArchitectureAnalyzer.dll'
+          version='${{ steps.version.outputs.version }}'
+          analyzer="./artifacts/loach.ArchitectureAnalyzer.${version}.nupkg"
+          baseline_tool="./artifacts/loach.ArchitectureAnalyzer.Baseline.${version}.nupkg"
+
+          test -f "$analyzer"
+          test -f "$baseline_tool"
+
+          unzip -l "$analyzer"
+          unzip -l "$analyzer" | grep -q 'analyzers/dotnet/cs/ArchitectureAnalyzer.dll'
+          unzip -l "$analyzer" | grep -q 'buildTransitive/loach.ArchitectureAnalyzer.props'
+
+          unzip -l "$baseline_tool"
+          unzip -l "$baseline_tool" | grep -Eq 'tools/.*/ArchitectureAnalyzer.Baseline.dll'
 
       - name: Publish to NuGet.org
         run: >-

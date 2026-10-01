@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
+using ArchitectureAnalyzer.Baseline;
 using ArchitectureAnalyzer.Configuration;
 using ArchitectureAnalyzer.Contract;
 using ArchitectureAnalyzer.Diagnostics;
@@ -40,7 +41,9 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
         ArchitectureDiagnostics.InteropBoundaryViolation,
         ArchitectureDiagnostics.ArchitectureCoverageGap,
-        ArchitectureDiagnostics.DeclaredDependencyCycle);
+        ArchitectureDiagnostics.DeclaredDependencyCycle,
+        ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+        ArchitectureDiagnostics.ArchitectureBaselineCapture);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -134,13 +137,64 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var contract = result.Contract!;
 
+        var baselineMode = ConfigReader.ReadBaselineMode(configProvider, configDiagnostics);
+        var baseline = baselineMode == ConfigReader.BaselineMode.Ignore
+            ? ArchitectureBaseline.Capturing
+            : ArchitectureBaseline.Empty;
+        if (baselineMode == ConfigReader.BaselineMode.Enforce)
+        {
+            var baselineFiles = FindAdditionalFiles(
+                context.Options.AdditionalFiles,
+                ArchitectureBaseline.FileName);
+
+            if (baselineFiles.Count > 1)
+            {
+                var paths = new string[baselineFiles.Count];
+                for (var index = 0; index < baselineFiles.Count; index++)
+                {
+                    paths[index] = NormalizeAdditionalFilePath(baselineFiles[index].Path);
+                }
+
+                var reason = "multiple architecture baseline files were supplied: "
+                    + string.Join(", ", paths)
+                    + "; include at most one '" + ArchitectureBaseline.FileName + "' AdditionalFiles item";
+                context.RegisterCompilationEndAction(endContext =>
+                    endContext.ReportDiagnostic(Diagnostic.Create(
+                        ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+                        Location.None,
+                        ArchitectureBaseline.FileName,
+                        reason)));
+            }
+            else if (baselineFiles.Count == 1)
+            {
+                var baselineFile = baselineFiles[0];
+                var baselineFileName = GetFileName(baselineFile.Path);
+                var baselineText = baselineFile.GetText(context.CancellationToken);
+                var baselineResult = ArchitectureBaselineLoader.Load(baselineText?.ToString());
+                if (baselineResult.Succeeded)
+                {
+                    baseline = baselineResult.Baseline!;
+                }
+                else
+                {
+                    var reason = baselineResult.ErrorReason ?? "unknown error";
+                    context.RegisterCompilationEndAction(endContext =>
+                        endContext.ReportDiagnostic(Diagnostic.Create(
+                            ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+                            Location.None,
+                            baselineFileName,
+                            reason)));
+                }
+            }
+        }
+
         // DAG validation is contract-graph work only. Compute the canonical cycle list once per
         // compilation and report it at compilation end; no source syntax/symbol scan is added.
         var declaredDependencyCycles = DependencyCycleDetector.FindCycles(contract);
         if (!declaredDependencyCycles.IsEmpty)
         {
             context.RegisterCompilationEndAction(endContext =>
-                ReportDeclaredDependencyCycles(endContext, declaredDependencyCycles));
+                ReportDeclaredDependencyCycles(endContext, declaredDependencyCycles, baseline));
         }
 
         // Layer-classification (AARC004/AARC005/AARC006) driven by symbol metadata so that
@@ -148,7 +202,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.LayerDeclaration is not null)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, baseline, configProvider, configDiagnostics),
                 SymbolKind.NamedType);
         }
 
@@ -158,7 +212,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.UnclassifiedCode == UnclassifiedCodePolicy.Error)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, baseline, configProvider, configDiagnostics),
                 SymbolKind.NamedType);
         }
 
@@ -176,7 +230,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
         context.RegisterCompilationEndAction(endContext =>
-            ReportDependencyDiagnostics(endContext, reportedDependencies));
+            ReportDependencyDiagnostics(endContext, reportedDependencies, baseline));
 
 context.RegisterOperationBlockAction(blockContext =>
         {
@@ -186,7 +240,7 @@ context.RegisterOperationBlockAction(blockContext =>
             var treeConfig = firstTree is not null
                 ? ConfigReader.Read(configProvider, firstTree, configDiagnostics)
                 : OperationalConfig.Default;
-            AnalyzeForbiddenApiUsage(blockContext, contract, treeConfig);
+            AnalyzeForbiddenApiUsage(blockContext, contract, baseline, treeConfig);
         });
 
         // Interop-boundary enforcement is declaration-based (method attributes), which the
@@ -196,7 +250,7 @@ context.RegisterOperationBlockAction(blockContext =>
         {
             var reportedInterop = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
             context.RegisterSyntaxNodeAction(
-                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, reportedInterop),
+                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, baseline, reportedInterop),
                 SyntaxKind.MethodDeclaration);
         }
 
@@ -206,30 +260,55 @@ context.RegisterOperationBlockAction(blockContext =>
 
     private static void ReportDeclaredDependencyCycles(
         CompilationAnalysisContext context,
-        ImmutableArray<ImmutableArray<string>> cycles)
+        ImmutableArray<ImmutableArray<string>> cycles,
+        ArchitectureBaseline baseline)
     {
         foreach (var cycle in cycles)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var cyclePath = string.Join(" -> ", cycle);
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.DeclaredDependencyCycle,
                 Location.None,
-                string.Join(" -> ", cycle)));
+                cyclePath,
+                cyclePath);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.DeclaredDependencyCycle,
+                Location.None,
+                cyclePath);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
     }
 
     private static List<AdditionalText> FindContractFiles(ImmutableArray<AdditionalText> additionalFiles)
     {
+        return FindAdditionalFiles(additionalFiles, ContractFileName);
+    }
+
+    private static List<AdditionalText> FindAdditionalFiles(
+        ImmutableArray<AdditionalText> additionalFiles,
+        string fileName)
+    {
         var matches = new List<AdditionalText>();
         foreach (var candidate in additionalFiles)
         {
-            if (string.Equals(GetFileName(candidate.Path), ContractFileName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(GetFileName(candidate.Path), fileName, StringComparison.OrdinalIgnoreCase))
             {
                 matches.Add(candidate);
             }
         }
 
         // Normalize only for ordering/reporting. The AdditionalText itself keeps its original path,
-        // while the duplicate diagnostic remains stable across '/' and '\\' platform separators.
+        // while duplicate diagnostics remain stable across '/' and '\\' platform separators.
         matches.Sort(static (left, right) => string.CompareOrdinal(
             NormalizeAdditionalFilePath(left.Path),
             NormalizeAdditionalFilePath(right.Path)));
@@ -312,14 +391,16 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
             sourceLayer,
             targetDisplay,
             targetLayer,
-            reason);
+            reason,
+            sourceExceptionName + " -> " + targetExceptionName);
         reported.GetOrAdd(sourceDisplay + "->" + targetDisplay, static _ => new ConcurrentQueue<DependencyViolation>())
             .Enqueue(violation);
     }
 
     private static void ReportDependencyDiagnostics(
         CompilationAnalysisContext context,
-        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported)
+        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported,
+        ArchitectureBaseline baseline)
     {
         foreach (var violations in reported.Values)
         {
@@ -340,14 +421,30 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
                 continue;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.ForbiddenLayerDependency,
                 earliest.Location,
+                earliest.BaselineKey,
                 earliest.SourceDisplay,
                 earliest.SourceLayer,
                 earliest.TargetDisplay,
                 earliest.TargetLayer,
-                earliest.Reason));
+                earliest.Reason);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.ForbiddenLayerDependency,
+                earliest.Location,
+                earliest.BaselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
 
         reported.Clear();
@@ -373,6 +470,7 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
     private static void AnalyzeForbiddenApiUsage(
         OperationBlockAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         OperationalConfig config)
     {
         if (!config.Enabled || !config.IsRuleEnabled("AARC003"))
@@ -401,6 +499,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
         }
 
         var sourceExceptionName = sourceType.OriginalDefinition.ToDisplayString();
+        var sourceMemberName = context.OwningSymbol.OriginalDefinition.ToDisplayString();
         var rules = contract.GetApiRules(sourceLayer);
         if (rules.IsEmpty)
         {
@@ -465,12 +564,33 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
                         continue;
                     }
 
-                    context.ReportDiagnostic(Diagnostic.Create(
+                    var rule = rules[ruleIndex];
+                    var ruleMember = rule.WholeType || rule.MemberName is null
+                        ? "*"
+                        : rule.MemberName;
+                    var baselineKey = sourceMemberName + " -> " + rule.TypeFullName + "." + ruleMember;
+                    var diagnostic = BaselineDiagnostic.Create(
+                        baseline,
                         ArchitectureDiagnostics.ForbiddenApiUsage,
                         location,
+                        baselineKey,
                         FormatApi(owner, member),
                         sourceLayer,
-                        rules[ruleIndex].Reason));
+                        rules[ruleIndex].Reason);
+                    if (diagnostic is not null)
+                    {
+                        context.ReportDiagnostic(diagnostic);
+                    }
+
+                    var capture = BaselineDiagnostic.CreateCapture(
+                        baseline,
+                        ArchitectureDiagnostics.ForbiddenApiUsage,
+                        location,
+                        baselineKey);
+                    if (capture is not null)
+                    {
+                        context.ReportDiagnostic(capture);
+                    }
                 }
             }
         }
@@ -479,6 +599,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
 private static void AnalyzeLayerDeclaration(
         SymbolAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
         ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
     {
@@ -516,6 +637,7 @@ private static void AnalyzeLayerDeclaration(
         }
 
         var ownLayers = GetAppliedMarkerLayers(type, contract);
+        var baselineKey = type.OriginalDefinition.ToDisplayString();
 
         // AARC004 fires only when the contract requires declarations and the operational
         // require_layer_declaration toggle has not relaxed enforcement for this tree.
@@ -524,19 +646,52 @@ private static void AnalyzeLayerDeclaration(
             && ownLayers.Count == 0
             && !IsNestedInDeclaredLayer(type, contract))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.MissingLayerDeclaration,
                 primary,
-                type.ToDisplayString()));
+                baselineKey,
+                type.ToDisplayString());
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.MissingLayerDeclaration,
+                primary,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
 
         if (ownLayers.Count > 1)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.MultipleLayerDeclarations,
                 primary,
+                baselineKey,
                 type.ToDisplayString(),
-                string.Join(", ", ownLayers)));
+                string.Join(", ", ownLayers));
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.MultipleLayerDeclarations,
+                primary,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
+
             return;
         }
 
@@ -550,13 +705,29 @@ private static void AnalyzeLayerDeclaration(
             if (namespaceLayer is not null
                 && !string.Equals(declaredLayer, namespaceLayer, StringComparison.Ordinal))
             {
-                context.ReportDiagnostic(Diagnostic.Create(
+                var diagnostic = BaselineDiagnostic.Create(
+                    baseline,
                     ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
                     primary,
+                    baselineKey,
                     type.ToDisplayString(),
                     declaredLayer,
                     GetNamespaceName(type.ContainingNamespace),
-                    namespaceLayer));
+                    namespaceLayer);
+                if (diagnostic is not null)
+                {
+                    context.ReportDiagnostic(diagnostic);
+                }
+
+                var capture = BaselineDiagnostic.CreateCapture(
+                    baseline,
+                    ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
+                    primary,
+                    baselineKey);
+                if (capture is not null)
+                {
+                    context.ReportDiagnostic(capture);
+                }
             }
         }
     }
@@ -568,6 +739,7 @@ private static void AnalyzeLayerDeclaration(
     private static void AnalyzeLayerCoverage(
         SymbolAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
         ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
     {
@@ -639,11 +811,27 @@ private static void AnalyzeLayerDeclaration(
         }
 
         var namespaceName = GetNamespaceName(type.ContainingNamespace);
-        context.ReportDiagnostic(Diagnostic.Create(
+        var diagnostic = BaselineDiagnostic.Create(
+            baseline,
             ArchitectureDiagnostics.ArchitectureCoverageGap,
             primary,
+            type.OriginalDefinition.ToDisplayString(),
             type.ToDisplayString(),
-            namespaceName.Length == 0 ? "<global namespace>" : namespaceName));
+            namespaceName.Length == 0 ? "<global namespace>" : namespaceName);
+        if (diagnostic is not null)
+        {
+            context.ReportDiagnostic(diagnostic);
+        }
+
+        var capture = BaselineDiagnostic.CreateCapture(
+            baseline,
+            ArchitectureDiagnostics.ArchitectureCoverageGap,
+            primary,
+            type.OriginalDefinition.ToDisplayString());
+        if (capture is not null)
+        {
+            context.ReportDiagnostic(capture);
+        }
     }
 
     private static List<string> GetAppliedMarkerLayers(INamedTypeSymbol type, ArchitectureContract contract)
@@ -754,6 +942,7 @@ private static void AnalyzeLayerDeclaration(
     private static void AnalyzeInteropBoundary(
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         ConcurrentDictionary<string, byte> reportedInterop)
     {
         if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
@@ -807,12 +996,30 @@ private static void AnalyzeLayerDeclaration(
                 continue;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            var baselineKey = method.OriginalDefinition.ToDisplayString()
+                + " [" + attributeFullName + "]";
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.InteropBoundaryViolation,
                 violationLocation,
+                baselineKey,
                 method.Name,
                 rule.AllowedLayer,
-                rule.Reason));
+                rule.Reason);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.InteropBoundaryViolation,
+                violationLocation,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
     }
 
@@ -1009,7 +1216,8 @@ internal sealed class DependencyViolation
         string sourceLayer,
         string targetDisplay,
         string targetLayer,
-        string reason)
+        string reason,
+        string baselineKey)
     {
         Location = location;
         SourceDisplay = sourceDisplay;
@@ -1017,6 +1225,7 @@ internal sealed class DependencyViolation
         TargetDisplay = targetDisplay;
         TargetLayer = targetLayer;
         Reason = reason;
+        BaselineKey = baselineKey;
     }
 
     public Location Location { get; }
@@ -1030,4 +1239,6 @@ internal sealed class DependencyViolation
     public string TargetLayer { get; }
 
     public string Reason { get; }
+
+    public string BaselineKey { get; }
 }

@@ -11,6 +11,11 @@ known violation. A configuration warning never means enforcement was relaxed: se
 IDs are never reused or renumbered once shipped (see [`design.md` §7](design.md#7-diagnostic-id-namespace));
 a retired rule is marked obsolete here rather than having its ID reassigned.
 
+Baselining is available for architecture-policy diagnostics AARC002–AARC007 and
+AARC010–AARC011. Matching uses stable diagnostic-specific symbol keys rather than source
+line/column numbers. Integrity/configuration diagnostics AARC001/AARC008/AARC009/AARC012 are never
+accepted in `architecture.baseline.json`. See [`baseline.md`](baseline.md).
+
 Schema-v5 contract exceptions are available only for exact AARC002 and AARC003 cases. They are
 checked before a diagnostic is reported; standard Roslyn severity, `#pragma`,
 `SuppressMessageAttribute` and `NoWarn` still apply afterward. Long-lived intentional exceptions
@@ -38,6 +43,8 @@ consumer.
 | [AARC009](#aarc009) | Unknown architecture analyzer configuration property | Warning | Yes |
 | [AARC010](#aarc010) | Type is not assigned to an architecture layer | Error | Yes |
 | [AARC011](#aarc011) | Declared architecture dependency graph contains a cycle | Error | Yes |
+| [AARC012](#aarc012) | Architecture baseline could not be loaded | Error | Yes |
+| [AARC013](#aarc013) | Architecture baseline capture record | Warning | Capture mode only |
 
 ---
 
@@ -750,6 +757,76 @@ dotnet_diagnostic.AARC011.severity = warning
 
 There is no separate `architecture_analyzer.*` operational toggle for AARC011 because the
 contract itself explicitly opts into the graph invariant.
+
+---
+
+## AARC012
+
+**Architecture baseline could not be loaded**
+
+| | |
+|---|---|
+| **ID** | `AARC012` |
+| **Title** | Architecture baseline could not be loaded |
+| **Message format** | `Architecture baseline '{0}' could not be loaded: {1}` |
+| **Category** | `Architecture` |
+| **Severity** | `Error` |
+| **Enabled by default** | Yes |
+
+Raised when an explicitly supplied `architecture.baseline.json` is unsafe to use: more than one
+matching baseline file is present, JSON/schema validation fails, a duplicate entry exists, or the
+file attempts to baseline a non-baselinable integrity/configuration diagnostic.
+
+AARC012 is fail-closed: the analyzer continues with an empty baseline, so architecture-policy
+diagnostics remain visible rather than being accidentally suppressed.
+
+The baseline format permits AARC002–AARC007 and AARC010–AARC011. AARC001, AARC008, AARC009 and
+AARC012 itself cannot be baselined.
+
+A project with no baseline file does not report AARC012 and behaves exactly as before baseline
+support existed.
+
+### Suppressing it
+
+Fix or regenerate the baseline. Suppressing AARC012 is discouraged because it hides a broken
+ratcheting artifact while all baseline suppression is disabled.
+
+See [`baseline.md`](baseline.md) for the supported generator and stable-key model.
+
+---
+
+## AARC013
+
+**Architecture baseline capture record**
+
+| | |
+|---|---|
+| **ID** | `AARC013` |
+| **Title** | Architecture baseline capture record |
+| **Message format** | `Baseline capture for {0}: {1}` |
+| **Category** | `Architecture` |
+| **Severity** | `Warning` |
+| **Enabled by default** | Yes, but emitted only in baseline capture mode |
+
+Arguments are the baselinable diagnostic ID and its stable semantic key.
+
+### Description
+
+AARC013 is transport metadata for the `architecture-baseline` generator. It is emitted only when
+the compilation receives `ArchitectureAnalyzerBaselineMode=ignore`. Each architecture-policy
+diagnostic that would normally be reported is accompanied by one AARC013 record so the generator
+can recover stable keys from compiler SARIF without relying on source line numbers.
+
+Normal builds use the default `enforce` mode and therefore never emit AARC013.
+
+AARC013 itself cannot be recorded in `architecture.baseline.json`. If a consumer suppresses
+AARC013 during capture, the generator refuses to update a non-empty baseline because policy
+diagnostics were seen without capture records.
+
+### Suppressing it
+
+Do not configure AARC013 in normal projects; it is absent in ordinary builds. During
+`architecture-baseline generate`, leave it enabled so the tool can reconstruct the debt set.
 
 ---
 

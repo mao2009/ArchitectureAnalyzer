@@ -157,4 +157,31 @@ public static class ArchitectureDiagnostics
             + "policy graph contains a directed cycle.",
         helpLinkUri: HelpLinkPrefix + "aarc011",
         customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+    /// <summary>AARC012 — an architecture baseline file is invalid or ambiguous.</summary>
+    public static readonly DiagnosticDescriptor ArchitectureBaselineInvalid = new(
+        id: "AARC012",
+        title: "Architecture baseline could not be loaded",
+        messageFormat: "Architecture baseline '{0}' could not be loaded: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A supplied architecture.baseline.json must be readable, unambiguous and "
+            + "schema-valid. Invalid baseline data never suppresses architecture diagnostics.",
+        helpLinkUri: HelpLinkPrefix + "aarc012",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+    /// <summary>
+    /// AARC013 — generator-only record carrying one stable baseline identity through compiler SARIF.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ArchitectureBaselineCapture = new(
+        id: "AARC013",
+        title: "Architecture baseline capture record",
+        messageFormat: "Baseline capture for {0}: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Emitted only when ArchitectureAnalyzerBaselineMode=ignore so the baseline "
+            + "generator can recover stable diagnostic identities from the compiler error log.",
+        helpLinkUri: HelpLinkPrefix + "aarc013");
 }

@@ -90,10 +90,11 @@ shopt -u nullglob
 
 if [ "${PACK_EXIT}" -eq 0 ] \
   && [ "${#PACKAGE_FILES[@]}" -eq 1 ] \
-  && unzip -l "${PACKAGE_FILES[0]}" | grep -q 'analyzers/dotnet/cs/ArchitectureAnalyzer.dll'; then
-  record "PASS" "step 1 - current source packed with the analyzer asset in analyzers/dotnet/cs"
+  && unzip -l "${PACKAGE_FILES[0]}" | grep -q 'analyzers/dotnet/cs/ArchitectureAnalyzer.dll' \
+  && unzip -l "${PACKAGE_FILES[0]}" | grep -q 'buildTransitive/loach.ArchitectureAnalyzer.props'; then
+  record "PASS" "step 1 - package contains analyzer asset and baseline-mode buildTransitive props"
 else
-  record "FAIL" "step 1 - packing failed or the package analyzer asset is missing"
+  record "FAIL" "step 1 - packing failed or required analyzer/buildTransitive assets are missing"
 fi
 
 echo

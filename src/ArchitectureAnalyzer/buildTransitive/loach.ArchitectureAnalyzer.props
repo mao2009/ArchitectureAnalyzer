@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <!-- Makes -p:ArchitectureAnalyzerBaselineMode=ignore visible to the Roslyn analyzer. -->
+    <CompilerVisibleProperty Include="ArchitectureAnalyzerBaselineMode" />
+  </ItemGroup>
+</Project>

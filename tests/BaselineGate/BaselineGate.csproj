@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <AdditionalFiles Include="architecture.contract.json" />
+    <AdditionalFiles Include="architecture.baseline.json" />
+
+    <!-- Normally supplied by the analyzer NuGet package's buildTransitive props. -->
+    <CompilerVisibleProperty Include="ArchitectureAnalyzerBaselineMode" />
+  </ItemGroup>
+</Project>

@@ -93,6 +93,7 @@ try {
 
     $packageFiles = @(Get-ChildItem -LiteralPath $Feed -Filter "*.nupkg" -File)
     $hasAnalyzerAsset = $false
+    $hasBaselineProps = $false
     if ($packExit -eq 0 -and $packageFiles.Count -eq 1) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $archive = [System.IO.Compression.ZipFile]::OpenRead($packageFiles[0].FullName)
@@ -100,17 +101,20 @@ try {
             $hasAnalyzerAsset = $null -ne ($archive.Entries | Where-Object {
                 $_.FullName -eq "analyzers/dotnet/cs/ArchitectureAnalyzer.dll"
             } | Select-Object -First 1)
+            $hasBaselineProps = $null -ne ($archive.Entries | Where-Object {
+                $_.FullName -eq "buildTransitive/loach.ArchitectureAnalyzer.props"
+            } | Select-Object -First 1)
         }
         finally {
             $archive.Dispose()
         }
     }
 
-    if ($packExit -eq 0 -and $packageFiles.Count -eq 1 -and $hasAnalyzerAsset) {
-        Add-Result "PASS" "step 1 - current source packed with the analyzer asset in analyzers/dotnet/cs"
+    if ($packExit -eq 0 -and $packageFiles.Count -eq 1 -and $hasAnalyzerAsset -and $hasBaselineProps) {
+        Add-Result "PASS" "step 1 - package contains analyzer asset and baseline-mode buildTransitive props"
     }
     else {
-        Add-Result "FAIL" "step 1 - packing failed or the package analyzer asset is missing"
+        Add-Result "FAIL" "step 1 - packing failed or required analyzer/buildTransitive assets are missing"
     }
 
     Write-Host ""
