@@ -54,6 +54,7 @@ public sealed class BaselineTests
     [InlineData("AARC008")]
     [InlineData("AARC009")]
     [InlineData("AARC012")]
+    [InlineData("AARC013")]
     public void Loader_RejectsIntegrityAndConfigurationDiagnostics(string diagnosticId)
     {
         var baseline = """
@@ -187,7 +188,7 @@ public sealed class BaselineTests
     }
 
     [Fact]
-    public async Task Aarc003_BaselineKeyIncludesOwningMemberAndApiMember()
+    public async Task Aarc003_BaselineKeyUsesOwningMemberAndForbiddenRuleIdentity()
     {
         const string contract = """
             {
@@ -199,6 +200,7 @@ public sealed class BaselineTests
                 {
                   "layer": "Domain",
                   "type": "System.Console",
+                  "member": "WriteLine",
                   "reason": "No console."
                 }
               ]
@@ -226,7 +228,57 @@ public sealed class BaselineTests
                         public void Run()
                         {
                             System.Console.WriteLine("legacy");
-                            System.Console.ReadLine();
+                        }
+                    }
+                }
+                """,
+        };
+        test.TestState.AdditionalFiles.Add((ArchitectureBaseline.FileName, baseline));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Aarc003_ChangedOwningMember_IsNewViolation()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ],
+              "forbiddenApis": [
+                {
+                  "layer": "Domain",
+                  "type": "System.Console",
+                  "member": "WriteLine",
+                  "reason": "No console."
+                }
+              ]
+            }
+            """;
+        const string baseline = """
+            {
+              "version": 1,
+              "entries": [
+                {
+                  "diagnosticId": "AARC003",
+                  "key": "Sample.Domain.LegacyConsole.Run() -> System.Console.WriteLine"
+                }
+              ]
+            }
+            """;
+
+        var test = new ArchitectureAnalyzerTest(contract)
+        {
+            TestCode = """
+                namespace Sample.Domain
+                {
+                    public class LegacyConsole
+                    {
+                        public void RenamedRun()
+                        {
+                            System.Console.WriteLine("legacy");
                         }
                     }
                 }
@@ -235,9 +287,9 @@ public sealed class BaselineTests
         test.TestState.AdditionalFiles.Add((ArchitectureBaseline.FileName, baseline));
         test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.Expect(
             ArchitectureDiagnostics.ForbiddenApiUsage,
-            8,
+            7,
             13,
-            "Console.ReadLine",
+            "Console.WriteLine",
             "Domain",
             "No console."));
 
