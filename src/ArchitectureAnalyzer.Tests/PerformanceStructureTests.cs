@@ -100,7 +100,7 @@ public sealed class PerformanceStructureTests
 
     private static ImmutableArray<MetadataReference> TestReferences()
     {
-        return ImmutableArray.Create(
+        return ImmutableArray.Create<MetadataReference>(
             MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location));
     }
