@@ -144,4 +144,17 @@ public static class ArchitectureDiagnostics
         description: "The contract uses unclassifiedCode=error and an applicable source type is "
             + "neither classified by a namespace root nor by a configured marker attribute.",
         helpLinkUri: HelpLinkPrefix + "aarc010");
+
+    /// <summary>AARC011 — the explicit allowed-dependency graph violates requireAcyclic.</summary>
+    public static readonly DiagnosticDescriptor DeclaredDependencyCycle = new(
+        id: "AARC011",
+        title: "Declared architecture dependency graph contains a cycle",
+        messageFormat: "Declared architecture dependency graph contains a cycle: {0}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "dependencyGraph.requireAcyclic is true and the explicit allowedDependencies "
+            + "policy graph contains a directed cycle.",
+        helpLinkUri: HelpLinkPrefix + "aarc011",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
 }
