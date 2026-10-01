@@ -132,4 +132,16 @@ public static class ArchitectureDiagnostics
         description: "A method carrying an attribute listed in interopBoundaryRules is declared "
             + "outside the layer the rule allows. The declaration must move into the allowed layer.",
         helpLinkUri: HelpLinkPrefix + "aarc007");
+
+    /// <summary>AARC010 — a source type is not covered by any configured architecture layer.</summary>
+    public static readonly DiagnosticDescriptor ArchitectureCoverageGap = new(
+        id: "AARC010",
+        title: "Type is not assigned to an architecture layer",
+        messageFormat: "Type '{0}' in namespace '{1}' could not be assigned to any architecture layer",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The contract uses unclassifiedCode=error and an applicable source type is "
+            + "neither classified by a namespace root nor by a configured marker attribute.",
+        helpLinkUri: HelpLinkPrefix + "aarc010");
 }

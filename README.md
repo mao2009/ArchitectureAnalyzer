@@ -33,9 +33,9 @@ CI log ten minutes later), and it needs no new infrastructure. See
 
 ```
    Architecture Contract          Analyzer                Roslyn Diagnostic         dotnet build            CI Gate
- architecture.contract.json  ->  ArchitectureContract  ->  AARC001 .. AARC008  ->  compilation fails  ->  workflow fails
+ architecture.contract.json  ->  ArchitectureContract  ->  AARC001 .. AARC010  -> compilation fails  ->  workflow fails
  (JSON, in your repo,             Analyzer                 (Error, except          with an error           on non-zero exit
-  under code review)          (generic; no rules            AARC006/AARC008)      at the exact line
+  under code review)          (generic; no rules            AARC006/008/009)      at the exact line
                                of its own)
 ```
 
@@ -57,7 +57,8 @@ baked into the analyzer.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
     { "name": "Application", "namespaceRoots": [ "MyApp.Application" ] }
@@ -71,13 +72,14 @@ baked into the analyzer.
 }
 ```
 
-Layers plus forbidden edges and APIs are the minimum. Attribute-based layer declaration
-(`layerDeclaration`) and interop boundaries (`interopBoundaryRules`) are optional sections
-documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+Layers are the minimum. Forbidden edges/APIs, attribute-based layer declaration
+(`layerDeclaration`), interop boundaries (`interopBoundaryRules`) and strict coverage are
+optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
 
-New contracts should declare `"schemaVersion": 1`. Existing versionless contracts remain valid
-and are interpreted as schema v1 during the 0.x line; unsupported future schema versions fail with
-AARC001 instead of being interpreted with older semantics.
+New contracts should declare the current `"schemaVersion": 2`. Schema v2 adds
+`unclassifiedCode`: `"error"` prevents a new namespace from silently escaping the architecture,
+while `"ignore"` preserves legacy behavior. Existing versionless/v1 contracts remain valid and
+permissive; unsupported future versions fail with AARC001 instead of being guessed.
 
 ### 2. Wire it into the project
 
@@ -106,7 +108,7 @@ Or from source, if you vendor or submodule this repository:
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
 The published `loach.ArchitectureAnalyzer` **0.0.1** is cut from tag `v0.0.1` and carries
-AARC001–AARC003 only; AARC004–AARC008 are merged on `main` and ship in the next tagged release.
+AARC001–AARC003 only; AARC004–AARC010 are on `main` and ship in the next tagged release.
 Use the source reference if you need them today.
 
 ### 3. Build
@@ -127,10 +129,13 @@ the analyzer is opt-in and does nothing without a contract.
    contract that fails the build in fifty places on day one gets deleted, not fixed.
 3. Add the two item-group lines above to each project you want governed.
 4. Build, fix or explicitly suppress what surfaces, then widen the contract one rule at a time.
+5. Once the intended namespace roots are complete, move to schema v2 and set
+   `"unclassifiedCode": "error"` to ratchet against future coverage gaps.
 
 `namespaceRoots` are prefixes, so `MyApp.Domain` covers `MyApp.Domain.Orders.Pricing` too.
-Namespaces that match no root are unclassified and invisible to the analyzer — see
-[`docs/architecture.md`](docs/architecture.md#4-unclassified-code).
+Unclassified namespaces stay permitted for v1/versionless contracts and v2 `"ignore"`; v2
+`"error"` reports AARC010 instead — see
+[`docs/architecture.md`](docs/architecture.md#4-unclassified-code-and-strict-coverage).
 
 ### Wiring the CI gate in your own workflow
 
@@ -156,10 +161,12 @@ turns the gate off exactly where it matters most.
 | [AARC006](docs/diagnostics.md#aarc006) | Architecture layer declaration contradicts namespace layer | Warning |
 | [AARC007](docs/diagnostics.md#aarc007) | Interop declaration outside allowed layer | Error |
 | [AARC008](docs/diagnostics.md#aarc008) | Invalid architecture analyzer configuration value | Warning |
+| [AARC009](docs/diagnostics.md#aarc009) | Unknown architecture analyzer configuration property | Warning |
+| [AARC010](docs/diagnostics.md#aarc010) | Type is not assigned to an architecture layer | Error |
 
-AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, and AARC007
-only when it declares `interopBoundaryRules`; a namespace-only contract behaves exactly as it did
-before those rules existed. Full message formats, triggering examples and per-diagnostic
+AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, AARC007
+only when it declares `interopBoundaryRules`, and AARC010 only for schema-v2 contracts with
+`unclassifiedCode=error`. Existing v1/versionless contracts keep their previous behavior. Full message formats, triggering examples and per-diagnostic
 suppression options are in [`docs/diagnostics.md`](docs/diagnostics.md).
 
 ## Configuration
@@ -188,6 +195,8 @@ the contract controls *what the rules are*.
   build; drift between a declared layer and its namespace is reported as a warning.
 - With `interopBoundaryRules`, a method carrying a configured attribute outside its allowed layer
   fails the build.
+- With schema-v2 `unclassifiedCode=error`, an applicable source type that resolves through neither
+  a namespace root nor a configured marker fails the build with AARC010.
 - A referenced contract file that is missing or malformed fails the build, rather than silently
   disabling enforcement.
 - The check runs everywhere `dotnet build` runs, with nothing extra to install or remember.
@@ -196,8 +205,8 @@ the contract controls *what the rules are*.
 
 - Judge whether your contract describes a *good* architecture — it enforces what you declare,
   faithfully and mechanically.
-- See code outside the namespaces listed in `layers[].namespaceRoots`; unclassified code is
-  invisible by design.
+- Reject unclassified code unless strict coverage is enabled; v1/versionless and v2
+  `unclassifiedCode=ignore` intentionally preserve permissive legacy behavior.
 - Say anything about runtime behaviour, correctness or security beyond the declared layer graph
   and API list.
 - Catch indirection that routes around the type system — reflection, `dynamic`, generated code on
@@ -215,9 +224,10 @@ bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 ```
 
-`verify-gate.sh` builds a sample consumer project, injects a violating source file, asserts the
-build then fails *with AARC002*, removes it and asserts the build passes again. The unit tests use
-an in-memory compilation; this script is the evidence that enforcement survives a genuine build.
+`verify-gate.sh` builds a sample consumer project, proves an injected dependency violation fails
+with AARC002, then proves a schema-v2 coverage gap fails with AARC010 under `error` and passes for
+the same source under `ignore`, before restoring a clean strict build. The unit tests use an
+in-memory compilation; this script is the evidence that enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
 `verify-package-consumer.sh` covers the distribution boundary separately: it packs the analyzer
@@ -233,7 +243,7 @@ Documentation map:
 |---|---|
 | [`docs/design.md`](docs/design.md) | the *why* — rationale and non-goals |
 | [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
-| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC008 |
+| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC010 |
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
@@ -244,8 +254,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## Status
 
-Eight diagnostics (AARC001–AARC008), namespace **and** attribute-based layer classification,
-attribute-driven interop boundaries, and `.editorconfig` operational options. The last published
+Ten diagnostics (AARC001–AARC010), namespace **and** attribute-based layer classification,
+schema-v2 strict architecture coverage, attribute-driven interop boundaries, and `.editorconfig`
+operational options. The last published
 package is `loach.ArchitectureAnalyzer` 0.0.1 (AARC001–AARC003); everything above is on `main`
 awaiting the next tag.
 

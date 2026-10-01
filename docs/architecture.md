@@ -15,7 +15,7 @@ architecture.contract.json          (a) the consuming repo's Architecture Contra
 ArchitectureContractAnalyzer        (b) a generic DiagnosticAnalyzer, no rules of its own
         |  Roslyn semantic model      +  .editorconfig operational options (configuration.md)
         v
-AARC001 .. AARC008                  (c) diagnostics; Error except AARC006/AARC008 (Warning)
+AARC001 .. AARC010                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
         |
         v
 dotnet build fails                  (d) locally, in the IDE, and in CI - the same command
@@ -33,20 +33,22 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
    `IdentifierName`/`GenericName` for dependency direction (AARC002) and an operation-block
    action for forbidden APIs (AARC003), plus — only when the corresponding contract section is
    present — a symbol action over named types for the declaration rules (AARC004/AARC005/AARC006)
-   and a syntax-node action over method declarations for interop boundaries (AARC007). A contract
-   that fails to load produces AARC001 once per compilation instead, and unparseable operational
-   options produce AARC008 at compilation end.
+   and a syntax-node action over method declarations for interop boundaries (AARC007). Schema-v2
+   strict coverage adds another named-type action for AARC010. A contract that fails to load
+   produces AARC001 once per compilation instead, and configuration problems produce
+   AARC008/AARC009 at compilation end.
 4. **(d)** The violation diagnostics are `DiagnosticSeverity.Error`, so they fail `dotnet build`
-   itself rather than only a separate lint step. AARC006 (declaration/namespace drift) and AARC008
-   (invalid configuration value) are `Warning`: they report drift and misconfiguration, not a known
-   violation.
+   itself rather than only a separate lint step. AARC006 (declaration/namespace drift) and
+   AARC008/AARC009 (configuration problems) are `Warning`: they report drift and
+   misconfiguration, not a known architecture violation.
 
 ## 2. Contract schema
 
 The contract is a single JSON object. `schemaVersion` is optional for backward compatibility
-with pre-versioning contracts and is interpreted as **1** when omitted. New or updated contracts
-should declare `"schemaVersion": 1`. `layers` is required; the other rule sections are optional
-and activate only the analyses that depend on them.
+with pre-versioning contracts and is interpreted as **1** when omitted. New contracts should
+declare the current `"schemaVersion": 2`; existing v1 and versionless contracts remain supported.
+`layers` is required; the other rule sections are optional and activate only the analyses that
+depend on them.
 
 Unknown properties inside a **supported schema version** are ignored, which permits additive
 metadata without changing rule semantics. A schema change that can affect interpretation must
@@ -61,12 +63,17 @@ contract with AARC001 instead of silently guessing.
 | `forbiddenApis` | no | AARC003 |
 | `layerDeclaration` | no | AARC004 / AARC005 / AARC006 |
 | `interopBoundaryRules` | no | AARC007 |
+| `unclassifiedCode` | no, schema v2 only | AARC010 when set to `"error"` |
 
 ```jsonc
 {
   // RECOMMENDED. Versionless legacy contracts are interpreted as v1 during the 0.x line.
-  // Unsupported versions fail with AARC001 rather than being interpreted approximately.
-  "schemaVersion": 1,
+  // v2 adds opt-in strict architecture coverage.
+  "schemaVersion": 2,
+
+  // OPTIONAL in v2. "ignore" preserves legacy behavior; "error" requires every applicable
+  // source type to resolve through a namespace root or configured marker attribute (AARC010).
+  "unclassifiedCode": "error",
 
   // REQUIRED. The layers this project declares. Names are matched case-sensitively
   // everywhere else in the document, and must be unique.
@@ -165,17 +172,21 @@ wins over the namespace, and unclassified code is never the allowed layer.
 
 ### Schema compatibility policy
 
-Schema **v1** is the first explicit public Architecture Contract schema.
+Schema **v1** is the first explicit public Architecture Contract schema; schema **v2** adds the
+optional `unclassifiedCode` coverage policy without changing v1 behavior.
 
 - A contract with `"schemaVersion": 1` is parsed as v1.
-- A versionless contract is also parsed as v1 during the 0.x release line so existing consumers do
-  not break merely because versioning was introduced.
+- A contract with `"schemaVersion": 2` is parsed as v2.
+- A versionless contract is parsed as v1 during the 0.x release line so existing consumers do not
+  break merely because versioning was introduced.
+- `unclassifiedCode` is valid only in v2. Supplying it to a v1/versionless contract is rejected
+  instead of being silently ignored.
 - If `schemaVersion` is present it must appear exactly once and be an integer. Duplicate
   `schemaVersion` properties are ambiguous and rejected before either value is interpreted;
   `null`, strings and fractional numbers are invalid rather than treated as versionless.
 - An unsupported version is rejected with AARC001. In particular, an older analyzer must never
   silently interpret a future schema version using old semantics.
-- Additive metadata may be introduced as unknown properties without changing v1 semantics;
+- Additive metadata may be introduced as unknown properties without changing existing semantics;
   unknown properties are ignored. Any new property whose interpretation changes architecture
   enforcement must ship under a new schema version.
 - Exact duplicate namespace roots and duplicate forbidden dependency edges are invalid. One
@@ -185,7 +196,7 @@ Schema **v1** is the first explicit public Architecture Contract schema.
   rejected as a contradictory rule instead of relying on declaration order.
 
 The compatibility guarantee is intentionally asymmetric: current analyzers keep accepting
-versionless/v1 contracts, while future-version contracts fail closed on older analyzers.
+versionless/v1/v2 contracts, while future-version contracts fail closed on older analyzers.
 
 ### Validation rules
 
@@ -200,7 +211,10 @@ included verbatim in the diagnostic message.
 | The root is not a JSON object | `the contract root must be a JSON object` |
 | `schemaVersion` appears more than once | `property 'schemaVersion' must not appear more than once` |
 | `schemaVersion` is present but is not an integer | `property 'schemaVersion' must be an integer when present` |
-| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersion is 1` |
+| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersions are 1 through 2` |
+| `unclassifiedCode` is used with schema v1/versionless | `property 'unclassifiedCode' requires schemaVersion 2` |
+| `unclassifiedCode` appears more than once | `property 'unclassifiedCode' must not appear more than once` |
+| `unclassifiedCode` is not `"ignore"` or `"error"` | `property 'unclassifiedCode' must be 'ignore' or 'error'` |
 | `layers` is missing | `required property 'layers' is missing` |
 | Two layers share a name | `layer 'X' is declared more than once in layers` |
 | A namespace root is declared more than once | `namespace root 'X' is declared more than once in layers` |
@@ -266,32 +280,43 @@ Ties between equal-length roots are broken by ordinal comparison of the root str
 that the result is deterministic; declaring the same root under two layers is a contract smell,
 not a supported feature.
 
-## 4. Unclassified code
+## 4. Unclassified code and strict coverage
 
-A type whose namespace matches **no** declared root has no layer, and the analyzer therefore has
-nothing to say about it: it is neither a valid source nor a valid target for AARC002, and
-AARC003 never applies inside it. This is intentional, not a gap to be fixed — see
-[`design.md` §5](design.md#5-why-namespace-based-layer-classification-not-attributes-for-v01)
-for why v0.1 classifies by namespace only, and
-[`design.md` §9](design.md#9-what-this-analyzer-guarantees-and-what-it-does-not) for the exact
-boundary of what enforcement does and does not guarantee.
+Legacy behavior remains permissive: a v1/versionless contract, or a v2 contract with
+`"unclassifiedCode": "ignore"` (the default), allows a type whose namespace matches no root to
+remain outside layer enforcement.
 
-The practical consequence: **a contract only governs the namespaces it lists.** Adding a new
-top-level namespace to a project silently adds unenforced code. Keeping `namespaceRoots` broad
-(one root per top-level layer namespace rather than per feature folder) is the cheapest way to
-avoid that.
+Schema v2 can make that boundary explicit:
 
-Invisibility is the default, not a law: setting
-`dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration = false` puts
-unclassified code into a synthetic `Unclassified` layer so it participates in edge and API checks
-instead ([`configuration.md` §3.1](configuration.md#31-property-list)).
+```json
+{
+  "schemaVersion": 2,
+  "unclassifiedCode": "error",
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] }
+  ]
+}
+```
 
-Generated code is also skipped: the analyzer sets
-`ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None)` and additionally ignores paths
-ending in `.g.cs`, `.g.i.cs`, `.designer.cs` or `.generated.cs`, and anything under an `obj/` or
-`bin/` directory. For AARC002/AARC003 the path-based half of that can be turned off with the
-`generated_code` / `skip_generated_code` options; the Roslyn flag and the AARC004–AARC007
-exclusion are unconditional.
+With `"error"`, every applicable source named type must resolve to a layer. Resolution uses the
+same attribute-aware rule as the other analyzer paths: a recognized marker attribute on the type
+or an enclosing type wins; otherwise namespace-root matching is used. If neither produces a layer,
+AARC010 is reported on the type declaration.
+
+Coverage deliberately follows existing operational exclusions. A file with
+`architecture_analyzer.enabled = false` is excluded, `rule.AARC010.enabled = false` can stage the
+rule for a subtree, and generated-path files are skipped by default but participate when
+`generated_code = include` / `skip_generated_code = false` makes them eligible. Types inside
+`layerDeclaration.markerNamespace` are exempt because they normally define the marker attributes
+themselves.
+
+AARC010 is not layered on top of a more specific declaration error: a class already receiving
+AARC004 for a required missing marker, or a type receiving AARC005 for conflicting marker layers,
+does not receive an additional coverage-gap diagnostic for the same cause.
+
+This strict mode is the recommended way to prevent a newly introduced top-level namespace from
+silently escaping an otherwise complete architecture contract. Projects adopting the analyzer
+incrementally can remain on v1 or use `"ignore"` until their namespace coverage is complete.
 
 ## 5. What each diagnostic inspects
 
@@ -302,7 +327,8 @@ exclusion are unconditional.
 | AARC003 | `RegisterOperationBlockAction` | Every `IInvocationOperation`, `IObjectCreationOperation` and `IMemberReferenceOperation` in the block |
 | AARC004 / AARC005 / AARC006 | `RegisterSymbolAction(SymbolKind.NamedType)`, registered only when the contract has a `layerDeclaration` | The class's own attributes, its containing-type chain and its namespace |
 | AARC007 | `RegisterSyntaxNodeAction(MethodDeclaration)`, registered only when `interopBoundaryRules` is non-empty | Each method's attributes and the layer of its containing type |
-| AARC008 | `RegisterCompilationEndAction` | Operational option values read while analyzing; reported once per offending key, `Location.None` |
+| AARC008 / AARC009 | `RegisterCompilationEndAction` | Invalid or unknown operational options; reported once per offending key, `Location.None` |
+| AARC010 | `RegisterSymbolAction(SymbolKind.NamedType)`, only when `unclassifiedCode=error` | Applicable source types after marker-attribute + namespace classification and operational exclusions |
 
 AARC002 de-duplicates on `"{sourceType}->{targetType}"` for the whole compilation, so a Domain
 type that touches the same Application type in twenty places produces one error, not twenty.
@@ -316,8 +342,9 @@ AARC004 is reported only when `layerDeclaration.required` is `true` **and** the 
 enclosing type resolves to a layer, as are types inside `markerNamespace`. AARC005 looks at the
 type's own attributes only. AARC006 needs `validateNamespaceConsistency` in the contract or the
 `validate_namespace_layer` option, and fires only for a type that declares exactly one layer.
-AARC004–AARC007 always skip generated paths, regardless of the generated-code options — see
-[`configuration.md` §3.2](configuration.md#32-scope-precisely).
+AARC004–AARC007 always skip generated paths, regardless of the generated-code options. AARC010
+instead follows the AARC002/AARC003 generated-path operational policy so strict coverage can be
+staged consistently — see [`configuration.md` §3.2](configuration.md#32-scope-precisely).
 
 ## 6. Consuming the analyzer
 
@@ -358,7 +385,7 @@ Because the diagnostics are `Error` and `EnabledByDefault`, no further wiring is
 | Path | Role |
 |---|---|
 | `src/ArchitectureAnalyzer/ArchitectureContractAnalyzer.cs` | The `DiagnosticAnalyzer`: contract discovery, dependency direction, forbidden APIs, declaration rules, interop boundaries |
-| `src/ArchitectureAnalyzer/Diagnostics/ArchitectureDiagnostics.cs` | The `DiagnosticDescriptor`s for AARC001–AARC008 |
+| `src/ArchitectureAnalyzer/Diagnostics/ArchitectureDiagnostics.cs` | The `DiagnosticDescriptor`s for AARC001–AARC010 |
 | `src/ArchitectureAnalyzer/Configuration/ConfigReader.cs` | Operational option keys, parsing and AARC008 reporting — the source of truth behind [`configuration.md`](configuration.md) |
 | `src/ArchitectureAnalyzer/Configuration/OperationalConfig.cs` | The typed, immutable resolved option set with its hardcoded defaults |
 | `src/ArchitectureAnalyzer/Contract/ArchitectureContract.cs` | Immutable contract model and layer resolution |

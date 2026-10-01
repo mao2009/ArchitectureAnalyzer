@@ -12,7 +12,7 @@ It is deliberately *not* about **what the rules are**. That is the Architecture 
 |---|---|---|
 | File | `architecture.contract.json` (via `AdditionalFiles`) | `.editorconfig` / `.globalconfig` |
 | Answers | *What is the architecture?* | *How does the analyzer run here?* |
-| Owns | layers, forbidden edges, forbidden APIs, marker attributes, interop boundaries | severity, on/off switches, generated-code handling |
+| Owns | layers, forbidden edges, forbidden APIs, marker attributes, interop boundaries, layer-coverage policy | severity, on/off switches, generated-code handling |
 | Schema reference | [`architecture.md` §2](architecture.md#2-contract-schema) | this document |
 | Reviewed as | an architectural decision | a build/tooling decision |
 
@@ -62,19 +62,20 @@ Source of truth: [`src/ArchitectureAnalyzer/Configuration/ConfigReader.cs`](../s
 | Property key | Type | Default | Scope | Effect |
 |---|---|---|---|---|
 | `dotnet_diagnostic.AARC001.architecture_analyzer.contract_required` | bool | `true` | compilation | When `false`, a missing or malformed contract stops producing [AARC001](diagnostics.md#aarc001) and the analyzer silently no-ops |
-| `dotnet_diagnostic.AARC002.architecture_analyzer.enabled` | bool | `true` | per file | When `false`, AARC002/AARC003 are skipped for that file (see §3.2 for what it does *not* cover) |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.enabled` | bool | `true` | per file | When `false`, AARC002/AARC003/AARC010 are skipped for that file (see §3.2 for what it does *not* cover) |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration` | bool | `true` | per file | When `false`, code in an unclassified namespace joins a synthetic `Unclassified` layer instead of being invisible, and [AARC004](diagnostics.md#aarc004) is not enforced |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer` | bool | `false` | per file | When `true`, [AARC006](diagnostics.md#aarc006) is checked even if the contract leaves `validateNamespaceConsistency` off |
-| `dotnet_diagnostic.AARC002.architecture_analyzer.generated_code` | `exclude` / `include` | `exclude` | per file | `include` analyzes generated-path files for AARC002/AARC003 |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.generated_code` | `exclude` / `include` | `exclude` | per file | `include` analyzes generated-path files for AARC002/AARC003/AARC010 |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.skip_generated_code` | bool | `true` | per file | Boolean form of the above; `false` on *either* this or the AARC003 key analyzes generated-path files |
 | `dotnet_diagnostic.AARC003.architecture_analyzer.skip_generated_code` | bool | `true` | per file | See above |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC002.enabled` | bool | `true` | per file | Turns AARC002 off for that file without touching its severity |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC003.enabled` | bool | `true` | per file | Turns AARC003 off for that file without touching its severity |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled` | bool | `true` | per file | Stages strict layer coverage for that file without changing the contract or AARC010 severity |
 
-Only `rule.AARC002.enabled` and `rule.AARC003.enabled` exist; there is no `rule.AARC004.enabled`
-and the like. AARC004/AARC005/AARC006 are gated by `require_layer_declaration` /
-`validate_namespace_layer` plus their contract settings, and AARC007 reads no operational property
-at all — use the standard severity key to turn those off.
+Only `rule.AARC002.enabled`, `rule.AARC003.enabled` and `rule.AARC010.enabled` exist; there is
+no `rule.AARC004.enabled` and the like. AARC004/AARC005/AARC006 are gated by
+`require_layer_declaration` / `validate_namespace_layer` plus their contract settings, and
+AARC007 reads no operational property at all — use the standard severity key to turn those off.
 
 ### 3.2 Scope, precisely
 
@@ -83,15 +84,15 @@ at all — use the standard severity key to turn those off.
 - **Compilation** applies to `contract_required` only: it is evaluated across every syntax tree in
   the compilation, and `false` anywhere wins — a single file opting out disables AARC001 for the
   whole compilation. AARC001 has no source location, so there is no narrower scope available.
-- `enabled = false` suppresses **AARC002 and AARC003 only**. AARC004/AARC005/AARC006 (symbol-based
-  declaration analysis) and AARC007 (interop boundaries) do not consult it, and AARC001 and AARC008
-  remain reportable. Turning a file off completely therefore also needs severity keys or a
-  contract change.
+- `enabled = false` suppresses **AARC002, AARC003 and AARC010** for that file. AARC004/AARC005/
+  AARC006 (declaration analysis) and AARC007 (interop boundaries) do not consult it, while
+  compilation/configuration diagnostics remain reportable. This lets strict coverage exempt a
+  tooling/vendor subtree without pretending it belongs to an architecture layer.
 - `enabled = false` short-circuits reading every other property for that file, so the remaining
   values stay at their defaults there.
-- Generated-code exclusion for AARC004–AARC007 is unconditional — those rules always skip
-  generated paths, whatever `generated_code` / `skip_generated_code` say. Those two properties only
-  affect AARC002/AARC003.
+- Generated-code exclusion for AARC004–AARC007 is unconditional. AARC010 follows AARC002/AARC003:
+  `generated_code` / `skip_generated_code` decide whether path-pattern generated files
+  participate in strict coverage.
 
 Generated paths are recognized by file path: anything ending in `.g.cs`, `.g.i.cs`, `.designer.cs`
 or `.generated.cs`, or living under an `obj/` or `bin/` directory. Roslyn's own
@@ -124,29 +125,20 @@ dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC002.enabled = false
 ## 4. Invalid values
 
 A property that is present but unparseable (`require_layer_declaration = yes`, or a
-`generated_code` value that is neither `exclude` nor `include`) does **not** fail the build and
-does **not** silently guess. The analyzer:
+`generated_code` value that is neither `exclude` nor `include`) never silently weakens the gate.
+The analyzer reports [AARC008](diagnostics.md#aarc008) once per offending property and applies the
+documented **fail-closed fallback** from the table in
+[`diagnostics.md`](diagnostics.md#fail-closed-configuration-policy). Where the ordinary default is
+permissive, the invalid fallback is intentionally stricter.
 
-1. ignores the value and uses the default from §3.1,
-2. reports [AARC008](diagnostics.md#aarc008) — `Warning` — once per offending property per
-   compilation, with no source location.
+An absent property, an empty value, and a whitespace-only value are treated as "not set" and take
+the normal default without a diagnostic. Booleans are parsed by `bool.TryParse`
+(`true`/`false`, case-insensitive; `1`/`0`/`yes`/`no` are not accepted), and
+`generated_code` is parsed case-insensitively against its two names.
 
-An absent property, an empty value, and a whitespace-only value are all treated as "not set" and
-take the default without a diagnostic. Booleans are parsed by `bool.TryParse` (`true`/`false`,
-case-insensitive; `1`/`0`/`yes`/`no` are *not* accepted), and `generated_code` is parsed
-case-insensitively against its two names.
-
-Unknown property names — a typo in the property or in the ID segment — are currently invisible:
-the analyzer looks up exact keys, so a misspelled key is simply never read and the intended
-setting silently never applies.
-
-> **Forward reference — configuration validation (issue [#31](https://github.com/mao2009/ArchitectureAnalyzer/issues/31),
-> PR [#39](https://github.com/mao2009/ArchitectureAnalyzer/pull/39)).** That work adds **AARC009**
-> (unknown `architecture_analyzer.*` property) and a fail-closed policy in which an *invalid* value
-> falls back to the safer interpretation rather than to the default. Both are defined in
-> `docs/diagnostics.md` by that PR and are deliberately not restated here. Until it merges, the
-> behavior documented above — warn and fall back to the default, unknown keys undetected — is what
-> ships.
+Unknown keys containing `.architecture_analyzer.` are reported as
+[AARC009](diagnostics.md#aarc009), so a typo in either the property or its literal diagnostic-ID
+prefix is visible instead of becoming a silent no-op.
 
 ## 5. What configuration cannot do
 
@@ -169,6 +161,7 @@ root = true
 dotnet_diagnostic.AARC002.severity = error
 dotnet_diagnostic.AARC003.severity = error
 dotnet_diagnostic.AARC006.severity = warning
+dotnet_diagnostic.AARC010.severity = error
 
 # Operational: check declaration/namespace drift repo-wide.
 dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer = true
@@ -177,12 +170,16 @@ dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer = true
 [src/Vendor/**.cs]
 dotnet_diagnostic.AARC002.architecture_analyzer.enabled = false
 dotnet_diagnostic.AARC004.severity = none
+
+# Or, when only strict coverage needs staging:
+[src/Legacy/**.cs]
+dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled = false
 ```
 
 ## 7. See also
 
 - [`architecture.md`](architecture.md) — the contract schema and the analysis pipeline
-- [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008
+- [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008–AARC010
 - [`design.md`](design.md) — why the contract, not the analyzer or its configuration, is the SSOT
 - [`compatibility/psxrecomp-analyzer-baseline.md`](compatibility/psxrecomp-analyzer-baseline.md) —
   capability baseline for the PSXRecomp.Analyzer consumer

@@ -30,6 +30,7 @@ consumer.
 | [AARC007](#aarc007) | Interop declaration outside allowed layer | Error | Yes |
 | [AARC008](#aarc008) | Invalid architecture analyzer configuration value | Warning | Yes |
 | [AARC009](#aarc009) | Unknown architecture analyzer configuration property | Warning | Yes |
+| [AARC010](#aarc010) | Type is not assigned to an architecture layer | Error | Yes |
 
 ---
 
@@ -526,6 +527,85 @@ deliberately keep foreign `architecture_analyzer.*` entries in a shared `.editor
 
 ---
 
+## AARC010
+
+**Type is not assigned to an architecture layer**
+
+| | |
+|---|---|
+| **ID** | `AARC010` |
+| **Title** | Type is not assigned to an architecture layer |
+| **Message format** | `Type '{0}' in namespace '{1}' could not be assigned to any architecture layer` |
+| **Category** | `Architecture` |
+| **Severity** | `Error` |
+| **Enabled by default** | Yes |
+
+Arguments are the source type display name and its containing namespace (or
+`<global namespace>`).
+
+### Description
+
+Raised only for schema-v2 contracts that opt into strict coverage with
+`"unclassifiedCode": "error"`. The analyzer first applies the same classification semantics used
+elsewhere: a recognized marker attribute on the type or an enclosing type wins, otherwise
+`layers[].namespaceRoots` are matched. AARC010 is emitted only when neither route assigns the
+type to a declared layer.
+
+The rule applies to source classes, structs, interfaces, enums and delegates. It follows
+operational exclusions: `architecture_analyzer.enabled = false` excludes a file,
+`rule.AARC010.enabled = false` can stage rollout, and generated-path files are skipped by default
+but can be included through the existing generated-code options. Types inside
+`layerDeclaration.markerNamespace` are exempt.
+
+AARC010 intentionally does not duplicate a more specific classification failure. A class already
+reported by AARC004 for a required missing declaration, or a type with conflicting marker layers
+reported by AARC005, does not receive a second coverage-gap diagnostic for the same root cause.
+
+### Minimal triggering example
+
+`architecture.contract.json`:
+
+```json
+{
+  "schemaVersion": 2,
+  "unclassifiedCode": "error",
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] }
+  ]
+}
+```
+
+```csharp
+namespace MyApp.Tools;
+
+public sealed class Helper
+{
+}
+```
+
+`Helper` is outside every configured namespace root and carries no recognized layer marker, so
+the declaration fails with AARC010.
+
+### Suppressing or staging it
+
+Prefer fixing the coverage gap by widening the appropriate namespace root, moving the type, or
+applying a configured marker attribute. For staged adoption, use the operational rule toggle on a
+narrow `.editorconfig` scope:
+
+```ini
+[src/Legacy/**.cs]
+dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled = false
+```
+
+Standard severity control also works:
+
+```ini
+[*.cs]
+dotnet_diagnostic.AARC010.severity = warning
+```
+
+---
+
 ## Fail-closed configuration policy
 
 Every operational property is read with two distinct values: the **default** used when the
@@ -544,6 +624,7 @@ the analyzer stricter, never weaker.
 | `dotnet_diagnostic.AARC003.architecture_analyzer.skip_generated_code` | bool | `true` / `false` | `true` | **`false`** | fail-closed |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC002.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC003.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled` | bool | `true` / `false` | `true` | `true` | fail-closed |
 
 Any other key containing `.architecture_analyzer.` is unknown and reported as
 [AARC009](#aarc009). This table is the single source of truth for "what happens if I typo this";

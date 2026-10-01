@@ -6,11 +6,16 @@ is a minimal class library that wires the analyzer up exactly the way any other 
 (`ProjectReference` with `OutputItemType="Analyzer"`, plus an `AdditionalFiles` contract), and it
 is committed in a clean, buildable state.
 
-[`verify-gate.sh`](verify-gate.sh) drives the full cycle: build the clean project (must succeed),
-copy [`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) in as `SampleConsumer/Domain/Violation.cs`
-and rebuild (must fail *and* the output must actually contain `AARC002`), then remove it and
-rebuild (must succeed again). The fixture is stored with a `.cs.txt` extension so the default
-compile glob never picks it up, and the script deletes the injected `.cs` file on exit.
+[`verify-gate.sh`](verify-gate.sh) drives two real enforcement scenarios. It first injects
+[`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) and requires AARC002. It then injects
+[`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside every
+declared root and requires AARC010 while the schema-v2 contract uses
+`"unclassifiedCode": "error"`. The script temporarily switches that same contract to
+`"ignore"` and proves the identical coverage-gap source then builds successfully, restores the
+strict contract, removes all injected files, and requires a final clean build.
+
+Both fixtures use `.cs.txt` so the default compile glob never picks them up. Cleanup restores the
+tracked contract even if an intermediate assertion fails.
 
 It exists because "the tests pass" is a weaker claim than the one this project makes; see
 [`../../docs/design.md` §2](../../docs/design.md#2-why-compiler-time-enforcement-specifically) and

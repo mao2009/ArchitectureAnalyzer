@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 2,
+  "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
     { "name": "Application", "namespaceRoots": [ "SampleConsumer.Application" ] }
