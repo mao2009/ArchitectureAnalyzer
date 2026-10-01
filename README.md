@@ -231,10 +231,11 @@ bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 ```
 
-`verify-gate.sh` builds a sample consumer project, proves an injected dependency violation fails
-with AARC002, then proves a schema-v2 coverage gap fails with AARC010 under `error` and passes for
-the same source under `ignore`, before restoring a clean strict build. The unit tests use an
-in-memory compilation; this script is the evidence that enforcement survives a genuine build.
+`verify-gate.sh` builds a sample consumer project, proves both an explicit forbidden edge and a
+schema-v3 positive-allowlist violation fail with AARC002, then proves a coverage gap fails with
+AARC010 under `error` and passes for the same source under `ignore`, before restoring a clean
+strict build. The unit tests use an in-memory compilation; this script is the evidence that
+enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
 `verify-package-consumer.sh` covers the distribution boundary separately: it packs the analyzer
