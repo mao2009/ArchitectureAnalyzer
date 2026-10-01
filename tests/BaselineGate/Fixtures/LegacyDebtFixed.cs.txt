@@ -1,0 +1,7 @@
+// Replaces Domain/LegacyDebt.cs temporarily to prove generator pruning.
+namespace BaselineGate.Domain;
+
+public sealed class LegacyDebt
+{
+    public string GetValue() => "fixed";
+}
