@@ -206,7 +206,8 @@ See [`docs/design.md` §9](docs/design.md#9-what-this-analyzer-guarantees-and-wh
 dotnet build ArchitectureAnalyzer.sln
 dotnet test src/ArchitectureAnalyzer.Tests
 tests/GateVerification/verify-gate.sh                 # project-reference real-build proof; needs bash
-bash tests/PackageConsumer/verify-package-consumer.sh # packed NuGet consumer E2E; needs bash + unzip
+bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
+./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 ```
 
 `verify-gate.sh` builds a sample consumer project, injects a violating source file, asserts the
@@ -229,6 +230,7 @@ Documentation map:
 | [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
 | [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC008 |
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
+| [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
 ## License

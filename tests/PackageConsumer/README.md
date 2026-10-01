@@ -3,7 +3,7 @@
 This directory verifies the public NuGet/MSBuild consumption boundary rather than the analyzer
 test harness or a source-tree project reference.
 
-`verify-package-consumer.sh`:
+`verify-package-consumer.sh` (Linux) and `verify-package-consumer.ps1` (Windows):
 
 1. packs the current `src/ArchitectureAnalyzer` source into a temporary local NuGet feed,
 2. clears the fixture's `bin`/`obj` output and restores `Consumer` from **only** that local feed,
@@ -19,11 +19,19 @@ The consumer project contains a normal `PackageReference` plus
 analyzer source tree. The package version is a local prerelease (`0.0.0-e2e` by default), so this
 test does not depend on whatever version happens to be published on NuGet.org.
 
-Run it from anywhere inside a checkout:
+Run the platform-native verifier from anywhere inside a checkout:
 
 ```bash
 bash tests/PackageConsumer/verify-package-consumer.sh
 ```
+
+```powershell
+./tests/PackageConsumer/verify-package-consumer.ps1
+```
+
+CI executes the same packaged-consumer scenario on both `ubuntu-latest` and `windows-latest`.
+See [`../../docs/platform-compatibility.md`](../../docs/platform-compatibility.md) for the
+supported compiler/OS matrix.
 
 The older `tests/GateVerification` fixture intentionally remains. It is useful for fast
 project-reference development checks, while this directory catches packaging, analyzer-asset,
