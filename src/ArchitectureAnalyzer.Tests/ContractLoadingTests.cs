@@ -551,6 +551,39 @@ public sealed class ContractLoadingTests
         Assert.Equal("property 'allowedDependencies' requires schemaVersion 3", result.ErrorReason);
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("true")]
+    public void Loader_AllowedDependencies_MustBeArray(string sectionJson)
+    {
+        var contract = "{ \"schemaVersion\": 3, \"layers\": [], \"allowedDependencies\": "
+            + sectionJson + " }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'allowedDependencies' must be a JSON array", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateAllowedDependenciesProperty_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [],
+              "allowedDependencies": [],
+              "allowedDependencies": []
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'allowedDependencies' must not appear more than once", result.ErrorReason);
+    }
+
     [Fact]
     public void Loader_AllowedDependencies_ParsesEmptyAndPopulatedTargets()
     {
