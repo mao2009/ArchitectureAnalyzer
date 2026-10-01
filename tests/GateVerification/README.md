@@ -6,13 +6,16 @@ is a minimal class library that wires the analyzer up exactly the way any other 
 (`ProjectReference` with `OutputItemType="Analyzer"`, plus an `AdditionalFiles` contract), and it
 is committed in a clean, buildable state.
 
-[`verify-gate.sh`](verify-gate.sh) drives two real enforcement scenarios. It first injects
-[`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) and requires AARC002. It then injects
-[`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside every
-declared root and requires AARC010 while the schema-v2 contract uses
-`"unclassifiedCode": "error"`. The script temporarily switches that same contract to
-`"ignore"` and proves the identical coverage-gap source then builds successfully, restores the
-strict contract, removes all injected files, and requires a final clean build.
+[`verify-gate.sh`](verify-gate.sh) drives three real enforcement scenarios. It first injects
+[`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) and requires AARC002 from an explicit
+`forbiddenDependencies` edge. It then injects
+[`Fixtures/AllowlistViolation.cs.txt`](Fixtures/AllowlistViolation.cs.txt) and requires AARC002
+from a schema-v3 `allowedDependencies` violation with no matching explicit deny edge. Finally it
+injects [`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside
+every declared root and requires AARC010 while `unclassifiedCode` is `"error"`. The script
+temporarily switches coverage to `"ignore"`, proves the identical coverage-gap source then builds
+successfully, restores the strict contract, removes all injected files, and requires a final clean
+build.
 
 Both fixtures use `.cs.txt` so the default compile glob never picks them up. Cleanup restores the
 tracked contract even if an intermediate assertion fails.
