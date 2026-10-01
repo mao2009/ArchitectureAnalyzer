@@ -270,17 +270,24 @@ context.RegisterOperationBlockAction(blockContext =>
 
     private static List<AdditionalText> FindContractFiles(ImmutableArray<AdditionalText> additionalFiles)
     {
+        return FindAdditionalFiles(additionalFiles, ContractFileName);
+    }
+
+    private static List<AdditionalText> FindAdditionalFiles(
+        ImmutableArray<AdditionalText> additionalFiles,
+        string fileName)
+    {
         var matches = new List<AdditionalText>();
         foreach (var candidate in additionalFiles)
         {
-            if (string.Equals(GetFileName(candidate.Path), ContractFileName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(GetFileName(candidate.Path), fileName, StringComparison.OrdinalIgnoreCase))
             {
                 matches.Add(candidate);
             }
         }
 
         // Normalize only for ordering/reporting. The AdditionalText itself keeps its original path,
-        // while the duplicate diagnostic remains stable across '/' and '\\' platform separators.
+        // while duplicate diagnostics remain stable across '/' and '\\' platform separators.
         matches.Sort(static (left, right) => string.CompareOrdinal(
             NormalizeAdditionalFilePath(left.Path),
             NormalizeAdditionalFilePath(right.Path)));
