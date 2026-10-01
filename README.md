@@ -172,7 +172,8 @@ numbers. Normal builds then tolerate only those exact known entries. New violati
 after fixes, rerun the generator and stale entries disappear.
 
 AARC001/AARC008/AARC009/AARC012 cannot be baselined because they indicate broken contract,
-configuration or baseline infrastructure. See [`docs/baseline.md`](docs/baseline.md).
+configuration or baseline infrastructure. AARC013 is generator-only transport metadata and also
+cannot be baselined. See [`docs/baseline.md`](docs/baseline.md).
 
 ### Adding it to an existing project
 
@@ -225,6 +226,7 @@ turns the gate off exactly where it matters most.
 | [AARC010](docs/diagnostics.md#aarc010) | Type is not assigned to an architecture layer | Error |
 | [AARC011](docs/diagnostics.md#aarc011) | Declared architecture dependency graph contains a cycle | Error |
 | [AARC012](docs/diagnostics.md#aarc012) | Architecture baseline could not be loaded | Error |
+| [AARC013](docs/diagnostics.md#aarc013) | Architecture baseline capture record | Warning (generator-only) |
 
 AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, AARC007
 only when it declares `interopBoundaryRules`, AARC010 only when `unclassifiedCode=error`, and
@@ -333,7 +335,7 @@ Documentation map:
 |---|---|
 | [`docs/design.md`](docs/design.md) | the *why* — rationale and non-goals |
 | [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
-| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC011 |
+| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC013 |
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
 | [`docs/architecture-exceptions-design.md`](docs/architecture-exceptions-design.md) | justified contract exceptions and Roslyn suppression precedence |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
@@ -348,12 +350,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## Status
 
-Twelve diagnostics (AARC001–AARC012), namespace **and** attribute-based layer classification,
+Twelve normal diagnostics (AARC001–AARC012) plus generator-only AARC013, namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
 declared-graph DAG enforcement, schema-v5 exact justified AARC002/AARC003 exceptions,
 attribute-driven interop boundaries, and `.editorconfig` operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
 (AARC001–AARC009); schema v2/v3/v4/v5, AARC010/AARC011, `allowedDependencies`,
-`dependencyGraph`, `exceptions`, baseline ratcheting, AARC012 and the baseline generator tool
+`dependencyGraph`, `exceptions`, baseline ratcheting, AARC012/AARC013 and the baseline generator tool
 are on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
