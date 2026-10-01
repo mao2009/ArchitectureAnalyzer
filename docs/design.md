@@ -163,9 +163,11 @@ or opinion about, what else sits in a project's review pipeline.
 `Error`:
 
 - A type in a declared layer that references another declared layer across either an explicit
-  `forbiddenDependencies` edge or a schema-v3 `allowedDependencies` boundary fails the build.
+  `forbiddenDependencies` edge or a schema-v3 `allowedDependencies` boundary fails the build,
+  unless schema v5 declares that exact AARC002 source/target pair as a justified exception.
 - A type in a declared layer that calls a member matched by a `forbiddenApis` rule fails the
-  build.
+  build unless schema v5 declares that exact AARC003 source/API/member tuple as a justified
+  exception.
 - A referenced-but-missing-or-malformed contract file fails the build rather than silently
   no-op'ing.
 - With schema-v2+ `unclassifiedCode=error`, an applicable source type that resolves through neither
@@ -182,6 +184,9 @@ or opinion about, what else sits in a project's review pipeline.
   behavior described in the original v0.1 design.
 - Runtime behavior, correctness, or security properties unrelated to the declared layer
   graph and API list.
+- Prevention of normal Roslyn suppression. `.editorconfig`, `#pragma`,
+  `SuppressMessageAttribute` and `NoWarn` remain compiler-owned controls; schema-v5 contract
+  exceptions are the reviewable narrow path, not a mechanism for overriding the compiler.
 - Detection of cycles in *observed source/runtime dependencies*. AARC011 validates only the
   explicit positive policy graph declared by `allowedDependencies`.
 - Detection of indirection that routes around the type system (reflection, dynamic,
