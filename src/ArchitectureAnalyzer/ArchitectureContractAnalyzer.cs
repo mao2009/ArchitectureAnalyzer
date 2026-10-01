@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
+using ArchitectureAnalyzer.Baseline;
 using ArchitectureAnalyzer.Configuration;
 using ArchitectureAnalyzer.Contract;
 using ArchitectureAnalyzer.Diagnostics;
@@ -40,7 +41,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
         ArchitectureDiagnostics.InteropBoundaryViolation,
         ArchitectureDiagnostics.ArchitectureCoverageGap,
-        ArchitectureDiagnostics.DeclaredDependencyCycle);
+        ArchitectureDiagnostics.DeclaredDependencyCycle,
+        ArchitectureDiagnostics.ArchitectureBaselineInvalid);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
