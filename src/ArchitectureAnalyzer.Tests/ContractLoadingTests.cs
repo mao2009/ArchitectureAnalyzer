@@ -574,7 +574,7 @@ public sealed class ContractLoadingTests
         Assert.True(result.Succeeded, result.ErrorReason);
         Assert.Equal(2, result.Contract!.AllowedDependencies.Length);
         Assert.Equal("Domain", result.Contract.AllowedDependencies[0].From);
-        Assert.Equal(["Shared"], result.Contract.AllowedDependencies[0].Targets);
+        Assert.Equal(new[] { "Shared" }, result.Contract.AllowedDependencies[0].Targets);
         Assert.Empty(result.Contract.AllowedDependencies[1].Targets);
     }
 
