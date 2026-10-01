@@ -652,6 +652,16 @@ private static void AnalyzeLayerDeclaration(
             {
                 context.ReportDiagnostic(diagnostic);
             }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.MissingLayerDeclaration,
+                primary,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
 
         if (ownLayers.Count > 1)
@@ -666,6 +676,16 @@ private static void AnalyzeLayerDeclaration(
             if (diagnostic is not null)
             {
                 context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.MultipleLayerDeclarations,
+                primary,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
             }
 
             return;
@@ -693,6 +713,16 @@ private static void AnalyzeLayerDeclaration(
                 if (diagnostic is not null)
                 {
                     context.ReportDiagnostic(diagnostic);
+                }
+
+                var capture = BaselineDiagnostic.CreateCapture(
+                    baseline,
+                    ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
+                    primary,
+                    baselineKey);
+                if (capture is not null)
+                {
+                    context.ReportDiagnostic(capture);
                 }
             }
         }
@@ -787,6 +817,16 @@ private static void AnalyzeLayerDeclaration(
         if (diagnostic is not null)
         {
             context.ReportDiagnostic(diagnostic);
+        }
+
+        var capture = BaselineDiagnostic.CreateCapture(
+            baseline,
+            ArchitectureDiagnostics.ArchitectureCoverageGap,
+            primary,
+            type.OriginalDefinition.ToDisplayString());
+        if (capture is not null)
+        {
+            context.ReportDiagnostic(capture);
         }
     }
 
@@ -965,6 +1005,16 @@ private static void AnalyzeLayerDeclaration(
             if (diagnostic is not null)
             {
                 context.ReportDiagnostic(diagnostic);
+            }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.InteropBoundaryViolation,
+                violationLocation,
+                baselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
             }
         }
     }
