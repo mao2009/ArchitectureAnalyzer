@@ -136,13 +136,62 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var contract = result.Contract!;
 
+        var baseline = ArchitectureBaseline.Empty;
+        var baselineMode = ConfigReader.ReadBaselineMode(configProvider, configDiagnostics);
+        if (baselineMode == ConfigReader.BaselineMode.Enforce)
+        {
+            var baselineFiles = FindAdditionalFiles(
+                context.Options.AdditionalFiles,
+                ArchitectureBaseline.FileName);
+
+            if (baselineFiles.Count > 1)
+            {
+                var paths = new string[baselineFiles.Count];
+                for (var index = 0; index < baselineFiles.Count; index++)
+                {
+                    paths[index] = NormalizeAdditionalFilePath(baselineFiles[index].Path);
+                }
+
+                var reason = "multiple architecture baseline files were supplied: "
+                    + string.Join(", ", paths)
+                    + "; include at most one '" + ArchitectureBaseline.FileName + "' AdditionalFiles item";
+                context.RegisterCompilationEndAction(endContext =>
+                    endContext.ReportDiagnostic(Diagnostic.Create(
+                        ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+                        Location.None,
+                        ArchitectureBaseline.FileName,
+                        reason)));
+            }
+            else if (baselineFiles.Count == 1)
+            {
+                var baselineFile = baselineFiles[0];
+                var baselineFileName = GetFileName(baselineFile.Path);
+                var baselineText = baselineFile.GetText(context.CancellationToken);
+                var baselineResult = ArchitectureBaselineLoader.Load(baselineText?.ToString());
+                if (baselineResult.Succeeded)
+                {
+                    baseline = baselineResult.Baseline!;
+                }
+                else
+                {
+                    var reason = baselineResult.ErrorReason ?? "unknown error";
+                    context.RegisterCompilationEndAction(endContext =>
+                        endContext.ReportDiagnostic(Diagnostic.Create(
+                            ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+                            Location.None,
+                            baselineFileName,
+                            reason)));
+                }
+            }
+        }
+
         // DAG validation is contract-graph work only. Compute the canonical cycle list once per
         // compilation and report it at compilation end; no source syntax/symbol scan is added.
         var declaredDependencyCycles = DependencyCycleDetector.FindCycles(contract);
         if (!declaredDependencyCycles.IsEmpty)
         {
             context.RegisterCompilationEndAction(endContext =>
-                ReportDeclaredDependencyCycles(endContext, declaredDependencyCycles));
+                ReportDeclaredDependencyCycles(endContext, declaredDependencyCycles, baseline));
         }
 
         // Layer-classification (AARC004/AARC005/AARC006) driven by symbol metadata so that
@@ -150,7 +199,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.LayerDeclaration is not null)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, baseline, configProvider, configDiagnostics),
                 SymbolKind.NamedType);
         }
 
@@ -160,7 +209,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.UnclassifiedCode == UnclassifiedCodePolicy.Error)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, baseline, configProvider, configDiagnostics),
                 SymbolKind.NamedType);
         }
 
@@ -178,7 +227,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
         context.RegisterCompilationEndAction(endContext =>
-            ReportDependencyDiagnostics(endContext, reportedDependencies));
+            ReportDependencyDiagnostics(endContext, reportedDependencies, baseline));
 
 context.RegisterOperationBlockAction(blockContext =>
         {
@@ -188,7 +237,7 @@ context.RegisterOperationBlockAction(blockContext =>
             var treeConfig = firstTree is not null
                 ? ConfigReader.Read(configProvider, firstTree, configDiagnostics)
                 : OperationalConfig.Default;
-            AnalyzeForbiddenApiUsage(blockContext, contract, treeConfig);
+            AnalyzeForbiddenApiUsage(blockContext, contract, baseline, treeConfig);
         });
 
         // Interop-boundary enforcement is declaration-based (method attributes), which the
@@ -198,7 +247,7 @@ context.RegisterOperationBlockAction(blockContext =>
         {
             var reportedInterop = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
             context.RegisterSyntaxNodeAction(
-                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, reportedInterop),
+                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, baseline, reportedInterop),
                 SyntaxKind.MethodDeclaration);
         }
 
