@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 5,
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "BaselineGate.Domain" ] },
+    { "name": "Application", "namespaceRoots": [ "BaselineGate.Application" ] }
+  ],
+  "forbiddenDependencies": [
+    {
+      "from": "Domain",
+      "to": "Application",
+      "reason": "Domain must not depend on Application."
+    }
+  ]
+}
