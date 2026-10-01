@@ -9,13 +9,14 @@ see [`design.md`](design.md). For the `.editorconfig` properties that tune *how 
 ## 1. End-to-end pipeline
 
 ```
-architecture.contract.json          (a) the consuming repo's Architecture Contract
+architecture.contract.json          (a) Architecture Contract
+architecture.baseline.json (opt.)   (a2) known-debt baseline / ratchet
         |  AdditionalFiles
         v
-ArchitectureContractAnalyzer        (b) a generic DiagnosticAnalyzer, no rules of its own
-        |  Roslyn semantic model      +  .editorconfig operational options (configuration.md)
+ArchitectureContractAnalyzer        (b) generic DiagnosticAnalyzer
+        |  Roslyn semantic model      +  .editorconfig/MSBuild operational options
         v
-AARC001 .. AARC011                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
+AARC001 .. AARC012                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
         |
         v
 dotnet build fails                  (d) locally, in the IDE, and in CI - the same command
@@ -24,12 +25,15 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
 1. **(a)** The consuming project ships `architecture.contract.json` next to its code and declares
    it as an `AdditionalFiles` item. This file is the single source of truth for the project's
    layering. Nothing about it is compiled into the analyzer.
-2. **(b)** On `RegisterCompilationStartAction`, the analyzer looks through
+2. **(a2)** An optional `architecture.baseline.json` is also compilation-scoped through
+   `AdditionalFiles`. It records exact known policy-diagnostic identities using stable symbol
+   keys, never line numbers. Invalid/ambiguous baseline data reports AARC012 and suppresses nothing.
+3. **(b)** On `RegisterCompilationStartAction`, the analyzer looks through
    `AnalyzerOptions.AdditionalFiles` for a file whose *file name* (case-insensitive, directory
    ignored) is `architecture.contract.json`, parses and validates it once, and caches the result
    for the whole compilation. If the file is absent, the analyzer registers nothing further and
    is a complete no-op — enforcement is opt-in per project.
-3. **(c)** With a valid contract, further actions are registered: a syntax-node action over
+4. **(c)** With a valid contract, further actions are registered: a syntax-node action over
    `IdentifierName`/`GenericName` for dependency direction (AARC002, including schema-v3
    positive allowlists) and an operation-block action for forbidden APIs (AARC003), plus — only
    when the corresponding contract section is
@@ -39,10 +43,34 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
    the explicit allowed-dependency graph once and reports AARC011 at compilation end without a new
    source scan. A contract that fails to load produces AARC001 once per compilation instead, and
    configuration problems produce AARC008/AARC009 at compilation end.
-4. **(d)** The violation diagnostics are `DiagnosticSeverity.Error`, so they fail `dotnet build`
+5. **(d)** The violation diagnostics are `DiagnosticSeverity.Error`, so they fail `dotnet build`
    itself rather than only a separate lint step. AARC006 (declaration/namespace drift) and
    AARC008/AARC009 (configuration problems) are `Warning`: they report drift and
    misconfiguration, not a known architecture violation.
+
+## Baseline / ratcheting
+
+Baseline support is independent of the Architecture Contract schema. A project can keep schema v1
+through v5 and optionally add a baseline v1 file:
+
+```xml
+<ItemGroup>
+  <AdditionalFiles Include="architecture.contract.json" />
+  <AdditionalFiles Include="architecture.baseline.json" />
+</ItemGroup>
+```
+
+The analyzer parses the baseline once per compilation and matches only exact
+`diagnosticId + stable key` pairs. Baselinable IDs are AARC002–AARC007 and AARC010–AARC011.
+AARC001/AARC008/AARC009/AARC012 are integrity/configuration diagnostics and cannot be baselined.
+
+Every emitted baselinable diagnostic carries an `architectureBaselineKey` property so the
+generator can reconstruct the current debt set without depending on line/column numbers. Normal
+builds enforce the baseline; the generator uses the compiler-visible
+`ArchitectureAnalyzerBaselineMode=ignore` property only during capture.
+
+See [`baseline.md`](baseline.md) for schema, stable-key rules and the incremental-adoption
+workflow.
 
 ## Multi-project solutions
 
