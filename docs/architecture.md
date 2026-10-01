@@ -170,8 +170,9 @@ Schema **v1** is the first explicit public Architecture Contract schema.
 - A contract with `"schemaVersion": 1` is parsed as v1.
 - A versionless contract is also parsed as v1 during the 0.x release line so existing consumers do
   not break merely because versioning was introduced.
-- If `schemaVersion` is present it must be an integer. `null`, strings and fractional numbers are
-  invalid rather than treated as versionless.
+- If `schemaVersion` is present it must appear exactly once and be an integer. Duplicate
+  `schemaVersion` properties are ambiguous and rejected before either value is interpreted;
+  `null`, strings and fractional numbers are invalid rather than treated as versionless.
 - An unsupported version is rejected with AARC001. In particular, an older analyzer must never
   silently interpret a future schema version using old semantics.
 - Additive metadata may be introduced as unknown properties without changing v1 semantics;
@@ -197,6 +198,7 @@ included verbatim in the diagnostic message.
 | The file is empty or whitespace | `the file is empty` |
 | The text is not valid JSON | the raw `System.Text.Json` parse message |
 | The root is not a JSON object | `the contract root must be a JSON object` |
+| `schemaVersion` appears more than once | `property 'schemaVersion' must not appear more than once` |
 | `schemaVersion` is present but is not an integer | `property 'schemaVersion' must be an integer when present` |
 | `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersion is 1` |
 | `layers` is missing | `required property 'layers' is missing` |
