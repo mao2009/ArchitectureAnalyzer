@@ -319,7 +319,7 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
-    public void Loader_UnsupportedSchemaVersion_Fails()
+    public void Loader_SchemaVersionThree_Succeeds()
     {
         const string contract = """
             {
@@ -332,9 +332,26 @@ public sealed class ContractLoadingTests
 
         var result = ArchitectureContractLoader.Load(contract);
 
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnsupportedSchemaVersion_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 4,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
         Assert.False(result.Succeeded);
         Assert.Equal(
-            "unsupported schemaVersion '3'; supported schemaVersions are 1 through 2",
+            "unsupported schemaVersion '4'; supported schemaVersions are 1 through 3",
             result.ErrorReason);
     }
 
@@ -343,7 +360,7 @@ public sealed class ContractLoadingTests
     {
         const string contract = """
             {
-              "schemaVersion": 3,
+              "schemaVersion": 4,
               "layers": [
                 { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
               ]
@@ -357,7 +374,7 @@ public sealed class ContractLoadingTests
         test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
             ArchitectureDiagnostics.ArchitectureContractInvalid,
             ArchitectureContractAnalyzer.ContractFileName,
-            "unsupported schemaVersion '3'; supported schemaVersions are 1 through 2"));
+            "unsupported schemaVersion '4'; supported schemaVersions are 1 through 3"));
 
         await test.RunAsync();
     }
@@ -510,6 +527,188 @@ public sealed class ContractLoadingTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("property 'unclassifiedCode' must not appear more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedDependencies_RequiresSchemaV3()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'allowedDependencies' requires schemaVersion 3", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedDependencies_ParsesEmptyAndPopulatedTargets()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Application", "namespaceRoots": [ "Sample.Application" ] },
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ], "reason": "Domain may depend only on Shared." },
+                { "from": "Shared", "to": [] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+        Assert.Equal(2, result.Contract!.AllowedDependencies.Length);
+        Assert.Equal("Domain", result.Contract.AllowedDependencies[0].From);
+        Assert.Equal(["Shared"], result.Contract.AllowedDependencies[0].Targets);
+        Assert.Empty(result.Contract.AllowedDependencies[1].Targets);
+    }
+
+    [Fact]
+    public void Loader_DuplicateAllowedDependencySource_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ] },
+                { "from": "Domain", "to": [] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("allowed dependency source 'Domain' is declared more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateAllowedDependencyTarget_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared", "Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("allowed dependency 'Domain' -> 'Shared' is declared more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedDependencyUndeclaredSource_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("layer 'Domain' referenced in allowedDependencies is not declared in layers", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedDependencyUndeclaredTarget_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("layer 'Shared' referenced in allowedDependencies is not declared in layers", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedDependencyMissingTargets_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain" }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'to' of allowedDependencies source 'Domain' must be a JSON array", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_AllowedAndForbiddenSameEdge_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Shared", "namespaceRoots": [ "Sample.Shared" ] }
+              ],
+              "forbiddenDependencies": [
+                { "from": "Domain", "to": "Shared" }
+              ],
+              "allowedDependencies": [
+                { "from": "Domain", "to": [ "Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("dependency 'Domain' -> 'Shared' is declared as both allowed and forbidden", result.ErrorReason);
     }
 
     [Fact]
