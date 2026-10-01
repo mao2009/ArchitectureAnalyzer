@@ -60,9 +60,12 @@ analyzer reports the matching paths and enforces **none** of them; it never sile
 This keeps a configuration mistake from applying an unintended architecture policy.
 
 A project that declares **no** contract file at all is not an error: the analyzer is opt-in and
-does nothing at all in that case. The diagnostic is reported once per compilation, without a
-source location, because the failure is a property of the compilation rather than of any one
-line of code.
+does nothing at all in that case. Likewise, setting
+`dotnet_diagnostic.AARC001.architecture_analyzer.contract_required = false` suppresses AARC001 for
+both malformed/unreadable contracts and ambiguous duplicate-contract discovery; in either case no
+contract is enforced for that compilation. The diagnostic is otherwise reported once per
+compilation, without a source location, because the failure is a property of the compilation
+rather than of any one line of code.
 
 ### Minimal triggering example
 
