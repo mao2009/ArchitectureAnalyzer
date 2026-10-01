@@ -302,7 +302,7 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
-    public void Loader_UnsupportedSchemaVersion_Fails()
+    public void Loader_SchemaVersionTwo_Succeeds()
     {
         const string contract = """
             {
@@ -315,8 +315,27 @@ public sealed class ContractLoadingTests
 
         var result = ArchitectureContractLoader.Load(contract);
 
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnsupportedSchemaVersion_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
         Assert.False(result.Succeeded);
-        Assert.Equal("unsupported schemaVersion '2'; supported schemaVersion is 1", result.ErrorReason);
+        Assert.Equal(
+            "unsupported schemaVersion '3'; supported schemaVersions are 1 through 2",
+            result.ErrorReason);
     }
 
     [Fact]
@@ -324,7 +343,7 @@ public sealed class ContractLoadingTests
     {
         const string contract = """
             {
-              "schemaVersion": 2,
+              "schemaVersion": 3,
               "layers": [
                 { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
               ]
@@ -338,7 +357,7 @@ public sealed class ContractLoadingTests
         test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
             ArchitectureDiagnostics.ArchitectureContractInvalid,
             ArchitectureContractAnalyzer.ContractFileName,
-            "unsupported schemaVersion '2'; supported schemaVersion is 1"));
+            "unsupported schemaVersion '3'; supported schemaVersions are 1 through 2"));
 
         await test.RunAsync();
     }
@@ -393,6 +412,92 @@ public sealed class ContractLoadingTests
             "property 'schemaVersion' must not appear more than once"));
 
         await test.RunAsync();
+    }
+
+    [Fact]
+    public void Loader_UnclassifiedCodeError_RequiresSchemaV2()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 1,
+              "unclassifiedCode": "error",
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'unclassifiedCode' requires schemaVersion 2", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData(""strict"")]
+    [InlineData(""ERROR"")]
+    [InlineData("true")]
+    [InlineData("null")]
+    public void Loader_InvalidUnclassifiedCode_Fails(string policyJson)
+    {
+        var contract = "{ "schemaVersion": 2, "unclassifiedCode": " + policyJson
+            + ", "layers": [{ "name": "Domain", "namespaceRoots": ["Sample.Domain"] }] }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'unclassifiedCode' must be 'ignore' or 'error'", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnclassifiedCodePolicies_AreParsed()
+    {
+        const string ignoreContract = """
+            {
+              "schemaVersion": 2,
+              "unclassifiedCode": "ignore",
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+        const string errorContract = """
+            {
+              "schemaVersion": 2,
+              "unclassifiedCode": "error",
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var ignored = ArchitectureContractLoader.Load(ignoreContract);
+        var strict = ArchitectureContractLoader.Load(errorContract);
+
+        Assert.True(ignored.Succeeded, ignored.ErrorReason);
+        Assert.Equal(UnclassifiedCodePolicy.Ignore, ignored.Contract!.UnclassifiedCode);
+        Assert.True(strict.Succeeded, strict.ErrorReason);
+        Assert.Equal(UnclassifiedCodePolicy.Error, strict.Contract!.UnclassifiedCode);
+    }
+
+    [Fact]
+    public void Loader_DuplicateUnclassifiedCode_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "unclassifiedCode": "ignore",
+              "unclassifiedCode": "error",
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'unclassifiedCode' must not appear more than once", result.ErrorReason);
     }
 
     [Fact]
