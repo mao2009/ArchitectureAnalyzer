@@ -170,4 +170,18 @@ public static class ArchitectureDiagnostics
             + "schema-valid. Invalid baseline data never suppresses architecture diagnostics.",
         helpLinkUri: HelpLinkPrefix + "aarc012",
         customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+    /// <summary>
+    /// AARC013 — generator-only record carrying one stable baseline identity through compiler SARIF.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ArchitectureBaselineCapture = new(
+        id: "AARC013",
+        title: "Architecture baseline capture record",
+        messageFormat: "Baseline capture for {0}: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "Emitted only when ArchitectureAnalyzerBaselineMode=ignore so the baseline "
+            + "generator can recover stable diagnostic identities from the compiler error log.",
+        helpLinkUri: HelpLinkPrefix + "aarc013");
 }
