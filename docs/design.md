@@ -162,8 +162,8 @@ or opinion about, what else sits in a project's review pipeline.
 **Guarantees**, given a correct contract file and `EnabledByDefault`/severity left at
 `Error`:
 
-- A type whose namespace matches a declared layer, and that references a type in another
-  declared layer across a `forbiddenDependencies` edge, fails the build.
+- A type in a declared layer that references another declared layer across either an explicit
+  `forbiddenDependencies` edge or a schema-v3 `allowedDependencies` boundary fails the build.
 - A type in a declared layer that calls a member matched by a `forbiddenApis` rule fails the
   build.
 - A referenced-but-missing-or-malformed contract file fails the build rather than silently
