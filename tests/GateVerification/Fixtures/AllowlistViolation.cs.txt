@@ -1,0 +1,12 @@
+// Stored as .cs.txt so it is compiled only when verify-gate.sh injects it.
+using SampleConsumer.Shared;
+
+namespace SampleConsumer.Application;
+
+/// <summary>
+/// Application is allowlisted to Domain only, so this direct Shared dependency must fail AARC002.
+/// </summary>
+public sealed class AllowlistViolation
+{
+    public SharedValue Value { get; } = new();
+}
