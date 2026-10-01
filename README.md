@@ -205,13 +205,21 @@ See [`docs/design.md` §9](docs/design.md#9-what-this-analyzer-guarantees-and-wh
 ```bash
 dotnet build ArchitectureAnalyzer.sln
 dotnet test src/ArchitectureAnalyzer.Tests
-tests/GateVerification/verify-gate.sh     # real dotnet build proof; needs bash
+tests/GateVerification/verify-gate.sh                 # project-reference real-build proof; needs bash
+bash tests/PackageConsumer/verify-package-consumer.sh # packed NuGet consumer E2E; needs bash + unzip
 ```
 
 `verify-gate.sh` builds a sample consumer project, injects a violating source file, asserts the
 build then fails *with AARC002*, removes it and asserts the build passes again. The unit tests use
 an in-memory compilation; this script is the evidence that enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
+
+`verify-package-consumer.sh` covers the distribution boundary separately: it packs the analyzer
+from the current checkout into a temporary local NuGet feed, restores a standalone consumer with
+an isolated package cache, verifies a clean build, injects the same kind of AARC002 violation, and
+verifies that the packaged analyzer fails the real build. It never depends on a published
+NuGet.org version or a project reference. See
+[`tests/PackageConsumer/README.md`](tests/PackageConsumer/README.md).
 
 Documentation map:
 

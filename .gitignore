@@ -64,5 +64,6 @@ desktop.ini
 ## Agent tooling state (not part of the project)
 .omc/
 
-## Transient file created by tests/GateVerification/verify-gate.sh; it must never be committed.
+## Transient files created by real-build verification scripts; they must never be committed.
 tests/GateVerification/SampleConsumer/Domain/Violation.cs
+tests/PackageConsumer/Consumer/Domain/Violation.cs
