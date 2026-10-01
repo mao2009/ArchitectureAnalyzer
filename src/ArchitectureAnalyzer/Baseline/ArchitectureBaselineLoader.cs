@@ -23,7 +23,7 @@ public static class ArchitectureBaselineLoader
         try
         {
             document = JsonDocument.Parse(
-                json,
+                json!,
                 new JsonDocumentOptions
                 {
                     AllowTrailingCommas = true,
