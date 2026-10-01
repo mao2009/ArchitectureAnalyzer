@@ -38,7 +38,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.MissingLayerDeclaration,
         ArchitectureDiagnostics.MultipleLayerDeclarations,
         ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
-        ArchitectureDiagnostics.InteropBoundaryViolation);
+        ArchitectureDiagnostics.InteropBoundaryViolation,
+        ArchitectureDiagnostics.ArchitectureCoverageGap);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -138,6 +139,16 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         {
             context.RegisterSymbolAction(
                 symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, configProvider, configDiagnostics),
+                SymbolKind.NamedType);
+        }
+
+        // Strict architecture coverage (schema v2) is symbol-based so marker-attribute overrides,
+        // nested types and partial declarations use the same classification semantics as the other
+        // architecture rules.
+        if (contract.UnclassifiedCode == UnclassifiedCodePolicy.Error)
+        {
+            context.RegisterSymbolAction(
+                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, configProvider, configDiagnostics),
                 SymbolKind.NamedType);
         }
 
@@ -514,6 +525,87 @@ private static void AnalyzeLayerDeclaration(
     /// Resolves the distinct declared layers a type's own marker attributes map to, in first-seen
     /// contract order.
     /// </summary>
+    private static void AnalyzeLayerCoverage(
+        SymbolAnalysisContext context,
+        ArchitectureContract contract,
+        AnalyzerConfigOptionsProvider configProvider,
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
+    {
+        if (context.Symbol is not INamedTypeSymbol type
+            || type.IsImplicitlyDeclared
+            || type.TypeKind is not (TypeKind.Class
+                or TypeKind.Struct
+                or TypeKind.Interface
+                or TypeKind.Enum
+                or TypeKind.Delegate))
+        {
+            return;
+        }
+
+        Location? primary = null;
+        OperationalConfig? config = null;
+        foreach (var location in type.Locations)
+        {
+            if (location.SourceTree is not { } tree)
+            {
+                continue;
+            }
+
+            var candidateConfig = ConfigReader.Read(configProvider, tree, configDiagnostics);
+            if (!candidateConfig.Enabled
+                || !candidateConfig.IsRuleEnabled("AARC010")
+                || (candidateConfig.SkipGeneratedCode && IsGeneratedPath(tree.FilePath)))
+            {
+                continue;
+            }
+
+            primary = location;
+            config = candidateConfig;
+            break;
+        }
+
+        if (primary is null || config is null)
+        {
+            return;
+        }
+
+        var declaration = contract.LayerDeclaration;
+        if (declaration is not null
+            && IsWithinNamespace(type.ContainingNamespace, declaration.MarkerNamespace))
+        {
+            return;
+        }
+
+        var ownLayers = GetAppliedMarkerLayers(type, contract);
+        if (ownLayers.Count > 1)
+        {
+            // AARC005 already gives the actionable explanation for ambiguous classification.
+            return;
+        }
+
+        if (type.TypeKind == TypeKind.Class
+            && declaration is { Required: true }
+            && config.RequireLayerDeclaration
+            && ownLayers.Count == 0
+            && !IsNestedInDeclaredLayer(type, contract))
+        {
+            // AARC004 already explains why this class has no usable declaration.
+            return;
+        }
+
+        if (ResolveLayer(type, contract) is not null)
+        {
+            return;
+        }
+
+        var namespaceName = GetNamespaceName(type.ContainingNamespace);
+        context.ReportDiagnostic(Diagnostic.Create(
+            ArchitectureDiagnostics.ArchitectureCoverageGap,
+            primary,
+            type.ToDisplayString(),
+            namespaceName.Length == 0 ? "<global namespace>" : namespaceName));
+    }
+
     private static List<string> GetAppliedMarkerLayers(INamedTypeSymbol type, ArchitectureContract contract)
     {
         var layers = new List<string>();
