@@ -47,7 +47,7 @@ function Invoke-DotnetLogged {
 
     & dotnet @Arguments *> $LogFile
     $exitCode = $LASTEXITCODE
-    Get-Content -Path $LogFile
+    Get-Content -Path $LogFile | ForEach-Object { Write-Host $_ }
     return $exitCode
 }
 
