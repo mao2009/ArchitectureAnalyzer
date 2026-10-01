@@ -304,8 +304,8 @@ internal static class Program
         return trustedAssemblies
             .Split(Path.PathSeparator)
             .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            .Select(path => MetadataReference.CreateFromFile(path))
-            .ToImmutableArray<MetadataReference>();
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
+            .ToImmutableArray();
     }
 
     private const string DependencyContract = """
