@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
@@ -29,5 +29,13 @@
   ],
   "dependencyGraph": {
     "requireAcyclic": true
-  }
+  },
+  "exceptions": [
+    {
+      "diagnosticId": "AARC002",
+      "sourceType": "SampleConsumer.Domain.ExceptionBridge",
+      "targetType": "SampleConsumer.Application.AppService",
+      "justification": "Real-build fixture proving one exact reviewed exception does not suppress unrelated dependencies."
+    }
+  ]
 }
