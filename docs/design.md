@@ -168,8 +168,10 @@ or opinion about, what else sits in a project's review pipeline.
   build.
 - A referenced-but-missing-or-malformed contract file fails the build rather than silently
   no-op'ing.
-- With schema-v2 `unclassifiedCode=error`, an applicable source type that resolves through neither
+- With schema-v2+ `unclassifiedCode=error`, an applicable source type that resolves through neither
   a configured marker attribute nor a namespace root fails the build with AARC010.
+- With schema-v4 `dependencyGraph.requireAcyclic=true`, every cyclic strongly connected component
+  in the explicit `allowedDependencies` policy graph fails the build with deterministic AARC011.
 
 **Does not guarantee**:
 
@@ -180,6 +182,8 @@ or opinion about, what else sits in a project's review pipeline.
   behavior described in the original v0.1 design.
 - Runtime behavior, correctness, or security properties unrelated to the declared layer
   graph and API list.
+- Detection of cycles in *observed source/runtime dependencies*. AARC011 validates only the
+  explicit positive policy graph declared by `allowedDependencies`.
 - Detection of indirection that routes around the type system (reflection, dynamic,
   source-generated code matching an excluded path, `unsafe` pointer arithmetic to reach
   otherwise-forbidden state).
