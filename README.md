@@ -140,6 +140,11 @@ error AARC002: 'MyApp.Domain.Order' (Domain) must not depend on 'MyApp.Applicati
 That is the whole setup. A project that ships no `architecture.contract.json` is unaffected —
 the analyzer is opt-in and does nothing without a contract.
 
+In a multi-project solution, this opt-in is **per compilation**. You may distribute the analyzer
+reference centrally while adding `AdditionalFiles` only to governed projects. Different projects
+can use different contracts without leakage; test/tooling projects with the analyzer loaded but no
+contract remain no-op. See [`docs/multi-project-design.md`](docs/multi-project-design.md).
+
 ### Adding it to an existing project
 
 1. Add the `loach.ArchitectureAnalyzer` package reference (or a submodule / project reference, per
@@ -254,6 +259,7 @@ See [`docs/design.md` §9](docs/design.md#9-what-this-analyzer-guarantees-and-wh
 dotnet build ArchitectureAnalyzer.sln
 dotnet test src/ArchitectureAnalyzer.Tests
 tests/GateVerification/verify-gate.sh                 # project-reference real-build proof; needs bash
+tests/MultiProjectGate/verify-multi-project.sh         # per-compilation multi-project isolation proof
 bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 dotnet run --project tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj -c Release
@@ -265,6 +271,12 @@ schema-v3 allowlist and schema-v4 DAG gates, then proves the AARC010 strict/igno
 before restoring a clean build. The unit tests use an in-memory compilation; this script is the evidence that
 enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
+
+`verify-multi-project.sh` builds Producer, Consumer, Tests and Tooling projects with the analyzer
+reference shared across all four compilations. Only Producer/Consumer receive contracts; injected
+project-specific violations prove each governed project uses its own policy, while Tests/Tooling
+remain silent without contracts. See
+[`tests/MultiProjectGate/README.md`](tests/MultiProjectGate/README.md).
 
 The representative performance benchmark generates three independent compilations with 300 source
 files total, measures contract loading, dependency analysis, forbidden-API analysis and the full
@@ -290,6 +302,7 @@ Documentation map:
 | [`docs/architecture-exceptions-design.md`](docs/architecture-exceptions-design.md) | justified contract exceptions and Roslyn suppression precedence |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/performance.md`](docs/performance.md) | representative workload, measured baseline and CI regression budgets |
+| [`docs/multi-project-design.md`](docs/multi-project-design.md) | compilation-scoped contract routing for multi-project solutions |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
 ## License
