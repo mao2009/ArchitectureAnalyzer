@@ -180,13 +180,20 @@ included verbatim in the diagnostic message.
 `reason` is optional everywhere; when omitted the corresponding diagnostic simply carries an
 empty reason string.
 
-### Known limitation: exactly one contract per compilation
+### Exactly one contract per compilation
 
-v0.1 supports **one** contract file. If several `AdditionalFiles` items happen to be named
-`architecture.contract.json`, the analyzer takes the first by ordinal path sort and does not
-report an error. Merging multiple contract files is deliberately not implemented — no real
-consumer has asked for it yet, and a merge semantics (union? override? per-project scoping?)
-should be designed against a concrete need rather than guessed at.
+ArchitectureAnalyzer supports **one** contract file per compilation. File-name matching is
+case-insensitive and accepts either `/` or `\\` path separators, so every `AdditionalFiles`
+item whose basename is `architecture.contract.json` participates in discovery.
+
+If more than one matching file is supplied, the analyzer **does not choose one**. It stops
+architecture analysis for that compilation and reports AARC001 with the matching paths sorted
+ordinally after normalizing separators to `/`. This makes ambiguous configuration deterministic
+across supported operating systems and prevents a path-order accident from enforcing the wrong
+contract. Remove all but one matching `AdditionalFiles` item to fix the error.
+
+Multiple-contract merging remains deliberately unsupported. Union/override/per-project merge
+semantics require an explicit design rather than an implicit path-order rule.
 
 ## 3. Namespace classification and the longest-prefix rule
 
