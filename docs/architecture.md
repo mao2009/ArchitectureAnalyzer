@@ -187,10 +187,14 @@ case-insensitive and accepts either `/` or `\\` path separators, so every `Addit
 item whose basename is `architecture.contract.json` participates in discovery.
 
 If more than one matching file is supplied, the analyzer **does not choose one**. It stops
-architecture analysis for that compilation and reports AARC001 with the matching paths sorted
-ordinally after normalizing separators to `/`. This makes ambiguous configuration deterministic
-across supported operating systems and prevents a path-order accident from enforcing the wrong
-contract. Remove all but one matching `AdditionalFiles` item to fix the error.
+architecture analysis for that compilation and, when
+`dotnet_diagnostic.AARC001.architecture_analyzer.contract_required` is `true` (the default),
+reports AARC001 with the matching paths sorted ordinally after normalizing separators to `/`.
+When `contract_required=false`, AARC001 is suppressed and the analyzer remains a no-op for the
+ambiguous compilation, matching the existing malformed-contract opt-out semantics. This makes
+ambiguous configuration deterministic across supported operating systems and prevents a
+path-order accident from enforcing the wrong contract. Remove all but one matching
+`AdditionalFiles` item to fix the configuration.
 
 Multiple-contract merging remains deliberately unsupported. Union/override/per-project merge
 semantics require an explicit design rather than an implicit path-order rule.
