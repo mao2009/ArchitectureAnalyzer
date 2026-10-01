@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "diagnosticId": "AARC002",
+      "key": "BaselineGate.Domain.LegacyDebt -> BaselineGate.Application.AppService",
+      "message": "Existing debt intentionally frozen by the baseline fixture."
+    }
+  ]
+}
