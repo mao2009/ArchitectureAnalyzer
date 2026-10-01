@@ -70,6 +70,12 @@ public static class ConfigReader
     /// <summary>Compilation-wide: whether a missing/invalid contract is an error (AARC001).</summary>
     public const string ContractRequiredKey = "dotnet_diagnostic.AARC001." + ArchitectureAnalyzerPrefix + "contract_required";
 
+    /// <summary>
+    /// Build property exposed by the NuGet package so the baseline generator can capture all
+    /// diagnostics without mutating architecture.baseline.json.
+    /// </summary>
+    public const string BaselineModeBuildPropertyKey = "build_property.ArchitectureAnalyzerBaselineMode";
+
     /// <summary>Per-tree: whether unclassified namespaces participate in layer analysis.</summary>
     public const string RequireLayerDeclarationKey = "dotnet_diagnostic.AARC002." + ArchitectureAnalyzerPrefix + "require_layer_declaration";
 
@@ -159,6 +165,31 @@ public static class ConfigReader
                 ["AARC003"] = aarc003Enabled,
                 ["AARC010"] = aarc010Enabled,
             });
+    }
+
+    /// <summary>
+    /// Reads the compilation-wide baseline enforcement mode. Normal builds enforce baselines;
+    /// the generator passes ArchitectureAnalyzerBaselineMode=ignore to capture the full debt set.
+    /// Invalid values fail closed by keeping enforcement enabled and reporting AARC008.
+    /// </summary>
+    public static BaselineMode ReadBaselineMode(
+        AnalyzerConfigOptionsProvider provider,
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)>? diagnostics)
+    {
+        if (!provider.GlobalOptions.TryGetValue(BaselineModeBuildPropertyKey, out var rawValue)
+            || string.IsNullOrWhiteSpace(rawValue))
+        {
+            return BaselineMode.Enforce;
+        }
+
+        if (Enum.TryParse(rawValue, ignoreCase: true, out BaselineMode mode)
+            && Enum.IsDefined(typeof(BaselineMode), mode))
+        {
+            return mode;
+        }
+
+        ReportInvalidValue(BaselineModeBuildPropertyKey, rawValue!, diagnostics);
+        return BaselineMode.Enforce;
     }
 
     /// <summary>
@@ -323,6 +354,16 @@ public static class ConfigReader
                 Location.None,
                 key,
                 rawValue));
+    }
+
+    /// <summary>Compilation-wide baseline enforcement mode.</summary>
+    public enum BaselineMode
+    {
+        /// <summary>Load architecture.baseline.json and suppress exact baseline hits.</summary>
+        Enforce,
+
+        /// <summary>Ignore the baseline while still reporting stable baseline keys.</summary>
+        Ignore,
     }
 
     /// <summary>Generated-code handling values for <c>architecture_analyzer.generated_code</c>.</summary>
