@@ -65,8 +65,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         // keys once per compilation and report the unrecognized ones (AARC009).
         ConfigReader.ReportUnknownKeys(configProvider, context.Compilation, configDiagnostics);
 
-        var contractFile = FindContractFile(context.Options.AdditionalFiles);
-        if (contractFile is null)
+        var contractFiles = FindContractFiles(context.Options.AdditionalFiles);
+        if (contractFiles.Count == 0)
         {
             // Opt-in semantics: a project that never declares a contract is never analyzed.
             // Report any invalid config values found even when no contract exists.
@@ -75,6 +75,38 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        if (contractFiles.Count > 1)
+        {
+            var paths = new string[contractFiles.Count];
+            for (var index = 0; index < contractFiles.Count; index++)
+            {
+                paths[index] = NormalizeAdditionalFilePath(contractFiles[index].Path);
+            }
+
+            var reason = "multiple architecture contract files were supplied: "
+                + string.Join(", ", paths)
+                + "; include exactly one '" + ContractFileName + "' AdditionalFiles item";
+
+            // Ambiguous discovery is fail-safe: never pick one contract and continue enforcing a
+            // potentially unintended policy. Respect the existing contract_required opt-out in the
+            // same way as malformed-contract failures.
+            context.RegisterCompilationEndAction(endContext =>
+            {
+                if (IsContractRequired(endContext.Compilation, configProvider))
+                {
+                    endContext.ReportDiagnostic(Diagnostic.Create(
+                        ArchitectureDiagnostics.ArchitectureContractInvalid,
+                        Location.None,
+                        ContractFileName,
+                        reason));
+                }
+
+                ReportConfigDiagnostics(endContext, configDiagnostics);
+            });
+            return;
+        }
+
+        var contractFile = contractFiles[0];
         var fileName = GetFileName(contractFile.Path);
         var text = contractFile.GetText(context.CancellationToken);
         var result = ArchitectureContractLoader.Load(text?.ToString());
@@ -151,25 +183,29 @@ context.RegisterOperationBlockAction(blockContext =>
             ReportConfigDiagnostics(endContext, configDiagnostics));
     }
 
-    private static AdditionalText? FindContractFile(ImmutableArray<AdditionalText> additionalFiles)
+    private static List<AdditionalText> FindContractFiles(ImmutableArray<AdditionalText> additionalFiles)
     {
-        AdditionalText? best = null;
+        var matches = new List<AdditionalText>();
         foreach (var candidate in additionalFiles)
         {
-            if (!string.Equals(GetFileName(candidate.Path), ContractFileName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(GetFileName(candidate.Path), ContractFileName, StringComparison.OrdinalIgnoreCase))
             {
-                continue;
-            }
-
-            // v0.1 supports exactly one contract; a deterministic ordinal path sort keeps the
-            // choice stable rather than dependent on item ordering.
-            if (best is null || string.CompareOrdinal(candidate.Path, best.Path) < 0)
-            {
-                best = candidate;
+                matches.Add(candidate);
             }
         }
 
-        return best;
+        // Normalize only for ordering/reporting. The AdditionalText itself keeps its original path,
+        // while the duplicate diagnostic remains stable across '/' and '\\' platform separators.
+        matches.Sort(static (left, right) => string.CompareOrdinal(
+            NormalizeAdditionalFilePath(left.Path),
+            NormalizeAdditionalFilePath(right.Path)));
+
+        return matches;
+    }
+
+    private static string NormalizeAdditionalFilePath(string path)
+    {
+        return string.IsNullOrEmpty(path) ? string.Empty : path.Replace('\\', '/');
     }
 
     private static void AnalyzeDependencyDirection(
