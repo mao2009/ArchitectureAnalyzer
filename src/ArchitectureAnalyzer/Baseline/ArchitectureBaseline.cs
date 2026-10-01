@@ -16,14 +16,27 @@ public sealed class ArchitectureBaseline
 
     private readonly ImmutableHashSet<(string DiagnosticId, string Key)> _entries;
 
-    internal ArchitectureBaseline(ImmutableHashSet<(string DiagnosticId, string Key)> entries)
+    internal ArchitectureBaseline(
+        ImmutableHashSet<(string DiagnosticId, string Key)> entries,
+        bool captureMode = false)
     {
         _entries = entries;
+        CaptureMode = captureMode;
     }
 
     /// <summary>An empty baseline that suppresses nothing.</summary>
     public static ArchitectureBaseline Empty { get; } = new(
         ImmutableHashSet<(string DiagnosticId, string Key)>.Empty);
+
+    /// <summary>
+    /// Empty matching plus capture records, used only by the baseline generator.
+    /// </summary>
+    public static ArchitectureBaseline Capturing { get; } = new(
+        ImmutableHashSet<(string DiagnosticId, string Key)>.Empty,
+        captureMode: true);
+
+    /// <summary>Whether capture-only AARC013 records should accompany policy diagnostics.</summary>
+    public bool CaptureMode { get; }
 
     /// <summary>Whether the exact diagnostic identity is already accepted legacy debt.</summary>
     public bool Contains(string diagnosticId, string key)
