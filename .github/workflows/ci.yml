@@ -43,6 +43,20 @@ jobs:
           chmod +x tests/GateVerification/verify-gate.sh
           tests/GateVerification/verify-gate.sh
 
+      - name: Restore representative performance benchmark
+        run: dotnet restore tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
+
+      - name: Representative performance regression guard
+        # Uses structural assertions plus generous wall-clock budgets. The budgets intentionally
+        # catch order-of-magnitude regressions rather than normal shared-runner noise.
+        run: >-
+          dotnet run
+          --project tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
+          --configuration Release
+          --no-restore
+          --
+          --ci
+
 
   package-consumer-e2e:
     name: Packaged consumer E2E (${{ matrix.os }})
