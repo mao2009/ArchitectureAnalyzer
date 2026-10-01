@@ -336,7 +336,7 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
-    public void Loader_UnsupportedSchemaVersion_Fails()
+    public void Loader_SchemaVersionFour_Succeeds()
     {
         const string contract = """
             {
@@ -349,9 +349,26 @@ public sealed class ContractLoadingTests
 
         var result = ArchitectureContractLoader.Load(contract);
 
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnsupportedSchemaVersion_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
         Assert.False(result.Succeeded);
         Assert.Equal(
-            "unsupported schemaVersion '4'; supported schemaVersions are 1 through 3",
+            "unsupported schemaVersion '5'; supported schemaVersions are 1 through 4",
             result.ErrorReason);
     }
 
@@ -360,7 +377,7 @@ public sealed class ContractLoadingTests
     {
         const string contract = """
             {
-              "schemaVersion": 4,
+              "schemaVersion": 5,
               "layers": [
                 { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
               ]
@@ -374,7 +391,7 @@ public sealed class ContractLoadingTests
         test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
             ArchitectureDiagnostics.ArchitectureContractInvalid,
             ArchitectureContractAnalyzer.ContractFileName,
-            "unsupported schemaVersion '4'; supported schemaVersions are 1 through 3"));
+            "unsupported schemaVersion '5'; supported schemaVersions are 1 through 4"));
 
         await test.RunAsync();
     }
@@ -742,6 +759,126 @@ public sealed class ContractLoadingTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("dependency 'Domain' -> 'Shared' is declared as both allowed and forbidden", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DependencyGraph_RequiresSchemaV4()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 3,
+              "layers": [],
+              "dependencyGraph": {
+                "requireAcyclic": true
+              }
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'dependencyGraph' requires schemaVersion 4", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("true")]
+    public void Loader_DependencyGraph_MustBeObject(string sectionJson)
+    {
+        var contract = "{ \"schemaVersion\": 4, \"layers\": [], \"dependencyGraph\": "
+            + sectionJson + " }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'dependencyGraph' must be a JSON object", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateDependencyGraphProperty_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 4,
+              "layers": [],
+              "dependencyGraph": {},
+              "dependencyGraph": {}
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'dependencyGraph' must not appear more than once", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData(""true"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    public void Loader_DependencyGraphRequireAcyclic_MustBeBoolean(string valueJson)
+    {
+        var contract = "{ \"schemaVersion\": 4, \"layers\": [], \"dependencyGraph\": "
+            + "{ \"requireAcyclic\": " + valueJson + " } }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            "property 'requireAcyclic' of dependencyGraph must be a boolean when present",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateRequireAcyclic_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 4,
+              "layers": [],
+              "dependencyGraph": {
+                "requireAcyclic": false,
+                "requireAcyclic": true
+              }
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            "property 'requireAcyclic' must not appear more than once in dependencyGraph",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DependencyGraphPolicy_DefaultsFalseAndParsesTrue()
+    {
+        const string defaultContract = """
+            {
+              "schemaVersion": 4,
+              "layers": [],
+              "dependencyGraph": {}
+            }
+            """;
+        const string strictContract = """
+            {
+              "schemaVersion": 4,
+              "layers": [],
+              "dependencyGraph": {
+                "requireAcyclic": true
+              }
+            }
+            """;
+
+        var defaultResult = ArchitectureContractLoader.Load(defaultContract);
+        var strictResult = ArchitectureContractLoader.Load(strictContract);
+
+        Assert.True(defaultResult.Succeeded, defaultResult.ErrorReason);
+        Assert.False(defaultResult.Contract!.DependencyGraph!.RequireAcyclic);
+        Assert.True(strictResult.Succeeded, strictResult.ErrorReason);
+        Assert.True(strictResult.Contract!.DependencyGraph!.RequireAcyclic);
     }
 
     [Fact]
