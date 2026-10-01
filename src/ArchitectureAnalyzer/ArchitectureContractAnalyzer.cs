@@ -564,7 +564,11 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
                         continue;
                     }
 
-                    var baselineKey = sourceMemberName + " -> " + ownerFullName + "." + matchName;
+                    var rule = rules[ruleIndex];
+                    var ruleMember = rule.WholeType || rule.MemberName is null
+                        ? "*"
+                        : rule.MemberName;
+                    var baselineKey = sourceMemberName + " -> " + rule.TypeFullName + "." + ruleMember;
                     var diagnostic = BaselineDiagnostic.Create(
                         baseline,
                         ArchitectureDiagnostics.ForbiddenApiUsage,
