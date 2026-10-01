@@ -103,6 +103,13 @@ oversight:
   needed to prove the core "contract → diagnostic → build failure" chain, so they are left
   out of v0.1 rather than built speculatively.
 
+That was the v0.1 baseline, not a permanent limitation. The current analyzer later added
+consumer-owned marker-attribute mappings through `layerDeclaration.markerAttributes`; those
+markers are an explicit per-type override while namespace classification remains the default.
+Schema v2 additionally adds opt-in strict coverage through `unclassifiedCode=error`, so consumers
+that want a closed architecture can make "falls through every classifier" a build error without
+changing the v1 behavior of existing projects.
+
 ## 6. Diagnostic scope for v0.1
 
 Three diagnostics, not six. PSXRecompStudio's `PSXR001`–`PSXR006` mixed truly generic
@@ -161,13 +168,16 @@ or opinion about, what else sits in a project's review pipeline.
   build.
 - A referenced-but-missing-or-malformed contract file fails the build rather than silently
   no-op'ing.
+- With schema-v2 `unclassifiedCode=error`, an applicable source type that resolves through neither
+  a configured marker attribute nor a namespace root fails the build with AARC010.
 
 **Does not guarantee**:
 
 - That the contract itself is a *good* architecture — the analyzer enforces whatever the
   contract says, faithfully and mechanically. Garbage in, garbage enforced.
-- Anything about code that lives outside a namespace listed in `layers[].namespaceRoots`
-  (unclassified code is invisible to the analyzer by design — see §5).
+- Rejection of unclassified code unless strict coverage is explicitly enabled. Versionless/v1
+  contracts and schema-v2 `unclassifiedCode=ignore` intentionally preserve the permissive
+  behavior described in the original v0.1 design.
 - Runtime behavior, correctness, or security properties unrelated to the declared layer
   graph and API list.
 - Detection of indirection that routes around the type system (reflection, dynamic,
