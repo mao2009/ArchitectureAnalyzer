@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
@@ -26,5 +26,8 @@
       "type": "System.Console",
       "reason": "Console I/O must be abstracted behind an Infrastructure adapter."
     }
-  ]
+  ],
+  "dependencyGraph": {
+    "requireAcyclic": true
+  }
 }
