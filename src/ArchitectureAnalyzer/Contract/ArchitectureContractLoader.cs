@@ -58,7 +58,7 @@ public static class ArchitectureContractLoader
     public const string ContractFileName = "architecture.contract.json";
 
     /// <summary>The newest Architecture Contract schema understood by this analyzer.</summary>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     /// <summary>The oldest explicit schema version this analyzer still accepts.</summary>
     public const int MinimumSupportedSchemaVersion = 1;
@@ -246,6 +246,12 @@ public static class ArchitectureContractLoader
             return ArchitectureContractLoadResult.Failure(dependencyGraphResult.Error);
         }
 
+        var exceptionsResult = ReadExceptions(root, schemaVersionResult.Version);
+        if (exceptionsResult.Error is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(exceptionsResult.Error);
+        }
+
         var apisBuilder = ImmutableArray.CreateBuilder<ForbiddenApiRule>();
         if (!TryGetArray(root, "forbiddenApis", out var apisElement, out var apisError))
         {
@@ -372,7 +378,147 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             interopBuilder.ToImmutable(),
             unclassifiedCodeResult.Policy,
             allowedDependenciesResult.Rules,
-            dependencyGraphResult.Policy));
+            dependencyGraphResult.Policy,
+            exceptionsResult.Exceptions));
+    }
+
+    private static (ImmutableArray<ArchitectureException> Exceptions, string? Error) ReadExceptions(
+        JsonElement root,
+        int schemaVersion)
+    {
+        var propertyCount = 0;
+        var section = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "exceptions", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            propertyCount++;
+            if (propertyCount > 1)
+            {
+                return (ImmutableArray<ArchitectureException>.Empty,
+                    "property 'exceptions' must not appear more than once");
+            }
+
+            section = property.Value;
+        }
+
+        if (propertyCount == 0)
+        {
+            return (ImmutableArray<ArchitectureException>.Empty, null);
+        }
+
+        if (schemaVersion < 5)
+        {
+            return (ImmutableArray<ArchitectureException>.Empty,
+                "property 'exceptions' requires schemaVersion 5");
+        }
+
+        if (section.ValueKind != JsonValueKind.Array)
+        {
+            return (ImmutableArray<ArchitectureException>.Empty,
+                "property 'exceptions' must be a JSON array");
+        }
+
+        var exceptions = ImmutableArray.CreateBuilder<ArchitectureException>();
+        var dependencyKeys = new HashSet<(string SourceType, string TargetType)>();
+        var apiKeys = new HashSet<(string SourceType, string ApiType, string Member)>();
+
+        foreach (var entry in section.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+            {
+                return (ImmutableArray<ArchitectureException>.Empty,
+                    "each entry of 'exceptions' must be a JSON object");
+            }
+
+            if (!TryGetNonEmptyString(entry, "diagnosticId", out var diagnosticId, out var diagnosticError))
+            {
+                return (ImmutableArray<ArchitectureException>.Empty,
+                    "in 'exceptions': " + diagnosticError);
+            }
+
+            if (!TryGetNonEmptyString(entry, "sourceType", out var sourceType, out var sourceError))
+            {
+                return (ImmutableArray<ArchitectureException>.Empty,
+                    "in 'exceptions': " + sourceError);
+            }
+
+            if (!TryGetNonEmptyString(entry, "justification", out var justification, out var justificationError))
+            {
+                return (ImmutableArray<ArchitectureException>.Empty,
+                    "in 'exceptions': " + justificationError);
+            }
+
+            switch (diagnosticId)
+            {
+                case "AARC002":
+                    if (entry.TryGetProperty("apiType", out _)
+                        || entry.TryGetProperty("member", out _))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            "AARC002 exception must not declare 'apiType' or 'member'");
+                    }
+
+                    if (!TryGetNonEmptyString(entry, "targetType", out var targetType, out var targetError))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            "in AARC002 exception: " + targetError);
+                    }
+
+                    if (!dependencyKeys.Add((sourceType!, targetType!)))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            $"AARC002 exception '{sourceType}' -> '{targetType}' is declared more than once");
+                    }
+
+                    exceptions.Add(new DependencyArchitectureException(
+                        sourceType!,
+                        targetType!,
+                        justification!));
+                    break;
+
+                case "AARC003":
+                    if (entry.TryGetProperty("targetType", out _))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            "AARC003 exception must not declare 'targetType'");
+                    }
+
+                    if (!TryGetNonEmptyString(entry, "apiType", out var apiType, out var apiTypeError))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            "in AARC003 exception: " + apiTypeError);
+                    }
+
+                    if (!TryGetNonEmptyString(entry, "member", out var member, out var memberError))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            "in AARC003 exception: " + memberError);
+                    }
+
+                    if (!apiKeys.Add((sourceType!, apiType!, member!)))
+                    {
+                        return (ImmutableArray<ArchitectureException>.Empty,
+                            $"AARC003 exception '{sourceType}' -> '{apiType}.{member}' is declared more than once");
+                    }
+
+                    exceptions.Add(new ForbiddenApiArchitectureException(
+                        sourceType!,
+                        apiType!,
+                        member!,
+                        justification!));
+                    break;
+
+                default:
+                    return (ImmutableArray<ArchitectureException>.Empty,
+                        $"exceptions diagnosticId '{diagnosticId}' is not supported; supported IDs are AARC002 and AARC003");
+            }
+        }
+
+        return (exceptions.ToImmutable(), null);
     }
 
     private static (DependencyGraphPolicy? Policy, string? Error) ReadDependencyGraph(

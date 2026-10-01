@@ -12,16 +12,20 @@ It is deliberately *not* about **what the rules are**. That is the Architecture 
 |---|---|---|
 | File | `architecture.contract.json` (via `AdditionalFiles`) | `.editorconfig` / `.globalconfig` |
 | Answers | *What is the architecture?* | *How does the analyzer run here?* |
-| Owns | layers, forbidden edges, forbidden APIs, marker attributes, interop boundaries, layer-coverage policy | severity, on/off switches, generated-code handling |
+| Owns | layers, dependency/API rules, marker/interop boundaries, coverage/DAG policy, exact justified long-lived exceptions | severity, on/off switches, generated-code handling, rollout suppression |
 | Schema reference | [`architecture.md` §2](architecture.md#2-contract-schema) | this document |
 | Reviewed as | an architectural decision | a build/tooling decision |
 
 The split matters because the contract is the reviewable declaration of intent — it belongs in
 pull requests and design discussions. Configuration is operational plumbing: a team may need to
-silence a rule in one legacy folder without anybody claiming the architecture changed. Encoding a
-rule in `.editorconfig` instead of the contract hides it from the document that is supposed to
-describe the system; encoding an operational exception in the contract corrupts the declaration
-with local build concerns. Keep each on its own side of the line.
+silence a rule in one legacy folder while migrating without claiming the architecture changed.
+Encoding a rule in `.editorconfig` hides it from the document that is supposed to describe the
+system.
+
+Schema v5 makes one distinction explicit: a deliberate **long-lived architecture exception** is
+itself architecture intent, so an exact AARC002/AARC003 exception with required justification
+belongs in the contract. Temporary/local rollout suppression remains configuration/source-level
+plumbing. See [`architecture-exceptions-design.md`](architecture-exceptions-design.md).
 
 ## 2. Severity: the standard Roslyn mechanism
 
@@ -37,8 +41,10 @@ dotnet_diagnostic.AARC002.severity = warning   # narrower scope wins
 ```
 
 Per-line suppression uses the usual `#pragma warning disable AARC002` /
-`[SuppressMessage("Architecture", "AARC002")]`. Per-diagnostic guidance lives in
-[`diagnostics.md`](diagnostics.md).
+`[SuppressMessage("Architecture", "AARC002")]`. Schema-v5 exact contract exceptions for
+AARC002/AARC003 are checked before the analyzer emits a diagnostic; these standard Roslyn controls
+apply afterward and therefore remain the compiler's final suppression layer. Per-diagnostic
+guidance lives in [`diagnostics.md`](diagnostics.md).
 
 ## 3. Operational properties
 
@@ -143,14 +149,16 @@ prefix is visible instead of becoming a silent no-op.
 ## 5. What configuration cannot do
 
 Configuration cannot add, remove or reinterpret a rule. It cannot declare a layer, forbid/allow
-an edge, require an acyclic declared graph, forbid an API, register a marker attribute or move an
-interop boundary — all of that requires editing `architecture.contract.json`, where it is
-reviewable as an architectural change. The
+an edge, require an acyclic declared graph, forbid an API, register a marker attribute, move an
+interop boundary, or create a schema-v5 reviewed exception — all of that requires editing
+`architecture.contract.json`, where it is reviewable as an architectural change. The
 strongest thing `.editorconfig` can do is stop the analyzer from looking, which is visible in the
 configuration file itself rather than hidden in a rule definition.
 
 The reverse also holds: the contract carries no operational settings. There is no way to pin a
-severity, skip generated code or disable a rule from inside the contract document.
+severity, skip generated code or disable an entire rule from inside the contract document.
+Schema-v5 exceptions suppress only one exact AARC002/AARC003 symbol tuple and are not a substitute
+for an operational rule toggle.
 
 ## 6. Worked example
 
@@ -182,6 +190,7 @@ dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled = false
 
 - [`architecture.md`](architecture.md) — the contract schema and the analysis pipeline
 - [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008–AARC011
+- [`architecture-exceptions-design.md`](architecture-exceptions-design.md) — long-lived contract exceptions vs Roslyn suppression
 - [`design.md`](design.md) — why the contract, not the analyzer or its configuration, is the SSOT
 - [`compatibility/psxrecomp-analyzer-baseline.md`](compatibility/psxrecomp-analyzer-baseline.md) —
   capability baseline for the PSXRecomp.Analyzer consumer

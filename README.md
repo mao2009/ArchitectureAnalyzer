@@ -57,7 +57,7 @@ baked into the analyzer.
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
@@ -74,20 +74,28 @@ baked into the analyzer.
   },
   "forbiddenApis": [
     { "layer": "Domain", "type": "System.Console", "reason": "Console I/O must be abstracted behind an Infrastructure adapter." }
+  ],
+  "exceptions": [
+    {
+      "diagnosticId": "AARC002",
+      "sourceType": "MyApp.Domain.LegacyBridge",
+      "targetType": "MyApp.Application.LegacyService",
+      "justification": "Temporary compatibility bridge tracked by ARCH-123."
+    }
   ]
 }
 ```
 
 Layers are the minimum. Forbidden edges/APIs, positive dependency allowlists
 (`allowedDependencies`), attribute-based layer declaration (`layerDeclaration`), interop
-boundaries (`interopBoundaryRules`), strict coverage and declared-graph DAG enforcement are
-optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+boundaries (`interopBoundaryRules`), strict coverage, declared-graph DAG enforcement and
+schema-v5 justified exceptions are optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
 
-New contracts should declare the current `"schemaVersion": 4`. Schema v2 added
-`unclassifiedCode`; schema v3 added `allowedDependencies`; schema v4 adds
-`dependencyGraph.requireAcyclic` for deterministic DAG validation. Existing
-versionless/v1/v2/v3 contracts remain valid; unsupported future versions fail with AARC001
-instead of being guessed.
+New contracts should declare the current `"schemaVersion": 5`. Schema v2 added
+`unclassifiedCode`; schema v3 added `allowedDependencies`; schema v4 added
+`dependencyGraph.requireAcyclic`; schema v5 adds narrow, justified `exceptions` for exact
+AARC002/AARC003 cases. Existing versionless/v1/v2/v3/v4 contracts remain valid; unsupported
+future versions fail with AARC001 instead of being guessed.
 
 ### 2. Wire it into the project
 
@@ -116,11 +124,11 @@ Or from source, if you vendor or submodule this repository:
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
 The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
-`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3/v4, AARC010/AARC011,
-`allowedDependencies` and `dependencyGraph` were added after that tag and are currently
-available from `main` (or a source reference); they require the next tagged NuGet release before
-PackageReference consumers can use them. Package 0.1.0 consumers should keep using schema v1 and
-omit v2+ properties.
+`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3/v4/v5, AARC010/AARC011,
+`allowedDependencies`, `dependencyGraph` and justified `exceptions` were added after that tag
+and are currently available from `main` (or a source reference); they require the next tagged
+NuGet release before PackageReference consumers can use them. Package 0.1.0 consumers should keep
+using schema v1 and omit v2+ properties.
 
 ### 3. Build
 
@@ -146,6 +154,9 @@ the analyzer is opt-in and does nothing without a contract.
    directions to be denied unless explicitly listed.
 7. Move to schema v4 and set `dependencyGraph.requireAcyclic=true` when the explicitly permitted
    layer graph must remain a DAG.
+8. For a deliberate long-lived AARC002/AARC003 exception, move to schema v5 and declare the exact
+   source/target or source/API/member tuple with a required `justification`; do not disable the
+   whole diagnostic just to permit one known exception.
 
 `namespaceRoots` are prefixes, so `MyApp.Domain` covers `MyApp.Domain.Orders.Pricing` too.
 Unclassified namespaces stay permitted for v1/versionless contracts and v2 `"ignore"`; v2
@@ -200,15 +211,18 @@ dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer = true
 
 The full property list, scope and precedence rules are in
 [`docs/configuration.md`](docs/configuration.md). Configuration controls *how the analyzer runs*;
-the contract controls *what the rules are*.
+the contract controls *what the rules are*. Long-lived architecture exceptions are contract data,
+not an operational toggle; see
+[`docs/architecture-exceptions-design.md`](docs/architecture-exceptions-design.md).
 
 ## What this does and does not guarantee
 
 **Does** — given a correct contract and severities left at `Error`:
 
 - A type in a declared layer that crosses an explicit deny edge or a positive allowlist boundary
-  fails the build.
-- A type in a declared layer that uses an API matched by a `forbiddenApis` rule fails the build.
+  fails the build unless that exact AARC002 source/target pair is a schema-v5 reviewed exception.
+- A type in a declared layer that uses an API matched by a `forbiddenApis` rule fails the build
+  unless that exact AARC003 source/API/member tuple is a schema-v5 reviewed exception.
 - With a `layerDeclaration` section, a class that declares no layer, or declares two, fails the
   build; drift between a declared layer and its namespace is reported as a warning.
 - With `interopBoundaryRules`, a method carrying a configured attribute outside its allowed layer
@@ -244,10 +258,10 @@ bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 ```
 
-`verify-gate.sh` builds a sample consumer project, proves both an explicit forbidden edge and a
-schema-v3 positive-allowlist violation fail with AARC002, proves a schema-v4 cyclic policy fails
-with AARC011, then proves a coverage gap fails with AARC010 under `error` and passes for the same
-source under `ignore`, before restoring a clean strict build. The unit tests use an in-memory compilation; this script is the evidence that
+`verify-gate.sh` builds a sample consumer project, proves one exact schema-v5 AARC002 exception
+passes while an unrelated dependency on the same forbidden layer edge still fails, proves the
+schema-v3 allowlist and schema-v4 DAG gates, then proves the AARC010 strict/ignore coverage cycle
+before restoring a clean build. The unit tests use an in-memory compilation; this script is the evidence that
 enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
@@ -266,6 +280,7 @@ Documentation map:
 | [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
 | [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC011 |
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
+| [`docs/architecture-exceptions-design.md`](docs/architecture-exceptions-design.md) | justified contract exceptions and Roslyn suppression precedence |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
@@ -277,10 +292,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 Eleven diagnostics (AARC001–AARC011), namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
-declared-graph DAG enforcement, attribute-driven interop boundaries, and `.editorconfig`
-operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
-(AARC001–AARC009); schema v2/v3/v4, AARC010/AARC011, `allowedDependencies` and
-`dependencyGraph` are on `main` awaiting the next tag.
+declared-graph DAG enforcement, schema-v5 exact justified AARC002/AARC003 exceptions,
+attribute-driven interop boundaries, and `.editorconfig` operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
+(AARC001–AARC009); schema v2/v3/v4/v5, AARC010/AARC011, `allowedDependencies`,
+`dependencyGraph` and `exceptions` are on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose

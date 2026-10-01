@@ -299,6 +299,13 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
 
         var sourceDisplay = sourceType.ToDisplayString();
         var targetDisplay = targetType.ToDisplayString();
+        var sourceExceptionName = sourceType.OriginalDefinition.ToDisplayString();
+        var targetExceptionName = targetType.OriginalDefinition.ToDisplayString();
+        if (contract.IsDependencyExcepted(sourceExceptionName, targetExceptionName))
+        {
+            return;
+        }
+
         var violation = new DependencyViolation(
             name.GetLocation(),
             sourceDisplay,
@@ -393,6 +400,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
             return;
         }
 
+        var sourceExceptionName = sourceType.OriginalDefinition.ToDisplayString();
         var rules = contract.GetApiRules(sourceLayer);
         if (rules.IsEmpty)
         {
@@ -442,8 +450,17 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
 
                 for (var ruleIndex = 0; ruleIndex < rules.Length; ruleIndex++)
                 {
-                    if (!rules[ruleIndex].Matches(ownerFullName, matchName, isConstructor)
-                        || !reportedRules.Add(ruleIndex))
+                    if (!rules[ruleIndex].Matches(ownerFullName, matchName, isConstructor))
+                    {
+                        continue;
+                    }
+
+                    if (contract.IsForbiddenApiExcepted(sourceExceptionName, ownerFullName, matchName))
+                    {
+                        continue;
+                    }
+
+                    if (!reportedRules.Add(ruleIndex))
                     {
                         continue;
                     }

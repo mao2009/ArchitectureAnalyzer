@@ -6,22 +6,24 @@ is a minimal class library that wires the analyzer up exactly the way any other 
 (`ProjectReference` with `OutputItemType="Analyzer"`, plus an `AdditionalFiles` contract), and it
 is committed in a clean, buildable state.
 
-[`verify-gate.sh`](verify-gate.sh) drives four real enforcement scenarios. It first injects
-[`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) and requires AARC002 from an explicit
-`forbiddenDependencies` edge. It then injects
-[`Fixtures/AllowlistViolation.cs.txt`](Fixtures/AllowlistViolation.cs.txt) and requires AARC002
-from a schema-v3 `allowedDependencies` violation with no matching explicit deny edge. Next it
-temporarily replaces the contract with
-[`Fixtures/CyclicContract.json.txt`](Fixtures/CyclicContract.json.txt) and requires AARC011 from
-schema-v4 `dependencyGraph.requireAcyclic`. Finally it injects
-[`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside every
-declared root and requires AARC010 while `unclassifiedCode` is `"error"`. The script temporarily
-switches coverage to `"ignore"`, proves the identical coverage-gap source then builds
-successfully, restores the strict acyclic contract, removes all injected files, and requires a
-final clean build.
+[`verify-gate.sh`](verify-gate.sh) drives the real enforcement and exception scenarios. The
+tracked schema-v5 contract contains one exact AARC002 exception. The script first injects
+[`Fixtures/ExceptedDependency.cs.txt`](Fixtures/ExceptedDependency.cs.txt) and proves that exact
+reviewed source/target pair builds successfully. It then injects
+[`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) on the same forbidden layer direction
+but from a different source type and requires AARC002, proving the exception did not suppress the
+rule broadly.
 
-Both fixtures use `.cs.txt` so the default compile glob never picks them up. Cleanup restores the
-tracked contract even if an intermediate assertion fails.
+The gate then injects
+[`Fixtures/AllowlistViolation.cs.txt`](Fixtures/AllowlistViolation.cs.txt) and requires AARC002
+from schema-v3 positive allowlisting, temporarily replaces the contract with
+[`Fixtures/CyclicContract.json.txt`](Fixtures/CyclicContract.json.txt) and requires AARC011,
+then exercises AARC010 strict/ignore coverage with
+[`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt). Finally it restores the tracked
+schema-v5 contract, removes every injected source and requires a clean build.
+
+The source fixtures use `.cs.txt` so the default compile glob never picks them up. Cleanup restores
+the tracked contract even if an intermediate assertion fails.
 
 It exists because "the tests pass" is a weaker claim than the one this project makes; see
 [`../../docs/design.md` §2](../../docs/design.md#2-why-compiler-time-enforcement-specifically) and

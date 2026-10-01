@@ -48,7 +48,7 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
 
 The contract is a single JSON object. `schemaVersion` is optional for backward compatibility
 with pre-versioning contracts and is interpreted as **1** when omitted. New contracts should
-declare the current `"schemaVersion": 4`; existing v1/v2/v3 and versionless contracts remain supported.
+declare the current `"schemaVersion": 5`; existing v1/v2/v3/v4 and versionless contracts remain supported.
 `layers` is required; the other rule sections are optional and activate only the analyses that
 depend on them.
 
@@ -62,18 +62,19 @@ contract with AARC001 instead of silently guessing.
 | `schemaVersion` | no (v0.x compatibility) | schema compatibility check; omitted means v1 |
 | `layers` | yes | namespace → layer classification (everything else depends on it) |
 | `forbiddenDependencies` | no | AARC002 |
-| `allowedDependencies` | no, schema v3 only | AARC002 positive allowlist for listed source layers |
+| `allowedDependencies` | no, schema v3+ | AARC002 positive allowlist for listed source layers |
 | `forbiddenApis` | no | AARC003 |
 | `layerDeclaration` | no | AARC004 / AARC005 / AARC006 |
 | `interopBoundaryRules` | no | AARC007 |
 | `unclassifiedCode` | no, schema v2+ | AARC010 when set to `"error"` |
 | `dependencyGraph` | no, schema v4+ | AARC011 when `requireAcyclic=true` and the declared graph is cyclic |
+| `exceptions` | no, schema v5+ | exact justified suppression of AARC002/AARC003 only |
 
 ```jsonc
 {
   // RECOMMENDED. Versionless legacy contracts are interpreted as v1 during the 0.x line.
-  // v2 added strict coverage; v3 added positive allowlists; v4 adds DAG validation.
-  "schemaVersion": 4,
+  // v2 added strict coverage; v3 allowlists; v4 DAG validation; v5 justified exceptions.
+  "schemaVersion": 5,
 
   // OPTIONAL in v2. "ignore" preserves legacy behavior; "error" requires every applicable
   // source type to resolve through a namespace root or configured marker attribute (AARC010).
@@ -119,6 +120,23 @@ contract with AARC001 instead of silently guessing.
   "dependencyGraph": {
     "requireAcyclic": true
   },
+
+  // OPTIONAL in v5. Exact, reviewable long-lived exceptions only.
+  "exceptions": [
+    {
+      "diagnosticId": "AARC002",
+      "sourceType": "MyApp.Domain.LegacyBridge",
+      "targetType": "MyApp.Application.LegacyService",
+      "justification": "Temporary compatibility bridge tracked by ARCH-123."
+    },
+    {
+      "diagnosticId": "AARC003",
+      "sourceType": "MyApp.Domain.LegacyClock",
+      "apiType": "System.DateTime",
+      "member": "Now",
+      "justification": "Legacy timestamp path tracked by ARCH-456."
+    }
+  ],
 
   // OPTIONAL. APIs that code inside a given layer must not use. "layer" must name a
   // layer declared above, otherwise the contract is invalid (AARC001).
@@ -238,6 +256,49 @@ SCC do not explode into many diagnostics: one canonical cycle is chosen for that
 The full rationale and deterministic selection rules are recorded in
 [`dependency-cycle-design.md`](dependency-cycle-design.md).
 
+### Justified architecture exceptions
+
+Schema v5 adds `exceptions` for long-lived, narrowly scoped architecture exceptions. The first
+version deliberately supports only AARC002 and AARC003.
+
+An AARC002 exception matches one exact source type -> target type pair:
+
+```json
+{
+  "diagnosticId": "AARC002",
+  "sourceType": "MyApp.Domain.LegacyBridge",
+  "targetType": "MyApp.Application.LegacyService",
+  "justification": "Temporary compatibility bridge tracked by ARCH-123."
+}
+```
+
+An AARC003 exception matches one exact source type + API type + member:
+
+```json
+{
+  "diagnosticId": "AARC003",
+  "sourceType": "MyApp.Domain.LegacyClock",
+  "apiType": "System.DateTime",
+  "member": "Now",
+  "justification": "Legacy timestamp path tracked by ARCH-456."
+}
+```
+
+Every exception requires a non-empty `justification`. Matching is ordinal, case-sensitive and
+symbol-based against original type definitions. There are no wildcards, namespace-prefix
+exceptions, layer-wide exceptions or "suppress all" contract switches. AARC003 requires an exact
+member; constructors use `.ctor` (static constructors `.cctor`) and property accessors normalize
+to the property name.
+
+Exceptions are checked only after the analyzer has established a real AARC002/AARC003 violation.
+They do not alter classification or rule matching. Contract-level exceptions are the recommended
+representation for deliberate long-lived architecture exceptions; normal Roslyn
+`.editorconfig`, `#pragma`, `SuppressMessage` and `NoWarn` remain compiler controls applied
+after analyzer reporting.
+
+The design rationale, precedence and recommended/discouraged patterns are documented in
+[`architecture-exceptions-design.md`](architecture-exceptions-design.md).
+
 The containing type's layer for `interopBoundaryRules` is resolved with the same
 attribute-aware rule as AARC002/AARC003: a marker attribute on the type or any enclosing type
 wins over the namespace, and unclassified code is never the allowed layer.
@@ -246,13 +307,15 @@ wins over the namespace, and unclassified code is never the allowed layer.
 
 Schema **v1** is the first explicit public Architecture Contract schema; schema **v2** adds the
 optional `unclassifiedCode` coverage policy, schema **v3** adds positive dependency allowlists
-through `allowedDependencies`, and schema **v4** adds declared-graph DAG enforcement through
-`dependencyGraph.requireAcyclic`.
+through `allowedDependencies`, schema **v4** adds declared-graph DAG enforcement through
+`dependencyGraph.requireAcyclic`, and schema **v5** adds exact justified AARC002/AARC003
+exceptions.
 
 - A contract with `"schemaVersion": 1` is parsed as v1.
 - A contract with `"schemaVersion": 2` is parsed as v2.
 - A contract with `"schemaVersion": 3` is parsed as v3.
 - A contract with `"schemaVersion": 4` is parsed as v4.
+- A contract with `"schemaVersion": 5` is parsed as v5.
 - A versionless contract is parsed as v1 during the 0.x release line so existing consumers do not
   break merely because versioning was introduced.
 - `unclassifiedCode` is valid in v2 and later. Supplying it to a v1/versionless contract is
@@ -261,6 +324,8 @@ through `allowedDependencies`, and schema **v4** adds declared-graph DAG enforce
   contract is rejected instead of being silently ignored.
 - `dependencyGraph` is valid only in v4 and later. Supplying it to an older schema is rejected
   instead of silently ignoring a DAG requirement.
+- `exceptions` is valid only in v5 and later. Supplying it to an older schema is rejected rather
+  than silently ignoring reviewed exception semantics.
 - If `schemaVersion` is present it must appear exactly once and be an integer. Duplicate
   `schemaVersion` properties are ambiguous and rejected before either value is interpreted;
   `null`, strings and fractional numbers are invalid rather than treated as versionless.
@@ -276,7 +341,7 @@ through `allowedDependencies`, and schema **v4** adds declared-graph DAG enforce
   rejected as a contradictory rule instead of relying on declaration order.
 
 The compatibility guarantee is intentionally asymmetric: current analyzers keep accepting
-versionless/v1/v2/v3/v4 contracts, while future-version contracts fail closed on older analyzers.
+versionless/v1/v2/v3/v4/v5 contracts, while future-version contracts fail closed on older analyzers.
 
 ### Validation rules
 
@@ -291,7 +356,17 @@ included verbatim in the diagnostic message.
 | The root is not a JSON object | `the contract root must be a JSON object` |
 | `schemaVersion` appears more than once | `property 'schemaVersion' must not appear more than once` |
 | `schemaVersion` is present but is not an integer | `property 'schemaVersion' must be an integer when present` |
-| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersions are 1 through 4` |
+| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersions are 1 through 5` |
+| `exceptions` is used before schema v5 | `property 'exceptions' requires schemaVersion 5` |
+| `exceptions` appears more than once | `property 'exceptions' must not appear more than once` |
+| `exceptions` is not an array | `property 'exceptions' must be a JSON array` |
+| An exception uses an unsupported diagnostic ID | `exceptions diagnosticId 'X' is not supported; supported IDs are AARC002 and AARC003` |
+| An exception omits `sourceType` or `justification` | standard required non-empty string error |
+| AARC002 exception omits `targetType` | `in AARC002 exception: required property 'targetType' is missing` |
+| AARC002 exception declares AARC003-only fields | `AARC002 exception must not declare 'apiType' or 'member'` |
+| AARC003 exception omits `apiType` or `member` | standard required non-empty string error prefixed with `in AARC003 exception:` |
+| AARC003 exception declares `targetType` | `AARC003 exception must not declare 'targetType'` |
+| The same exact exception key appears twice | deterministic AARC002/AARC003 duplicate-exception reason |
 | `dependencyGraph` is used before schema v4 | `property 'dependencyGraph' requires schemaVersion 4` |
 | `dependencyGraph` appears more than once | `property 'dependencyGraph' must not appear more than once` |
 | `dependencyGraph` is not an object | `property 'dependencyGraph' must be a JSON object` |
@@ -322,8 +397,9 @@ included verbatim in the diagnostic message.
 | A `bool` property (`wholeType`, `required`, `validateNamespaceConsistency`) holds a non-boolean | `property 'wholeType' must be a boolean when present`, … |
 | A required string property is missing or empty | `required property 'name' is missing`, `property 'type' must be a non-empty string`, … |
 
-`reason` is optional everywhere; when omitted the corresponding diagnostic simply carries an
-empty reason string.
+`reason` remains optional on rule entries; when omitted the corresponding diagnostic simply
+carries an empty reason string. Exception `justification` is different: it is required and must
+be a non-empty string.
 
 ### Exactly one contract per compilation
 
