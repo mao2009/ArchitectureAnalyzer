@@ -44,6 +44,26 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
    AARC008/AARC009 (configuration problems) are `Warning`: they report drift and
    misconfiguration, not a known architecture violation.
 
+## Multi-project solutions
+
+ArchitectureAnalyzer is **compilation scoped**, not solution scoped. Each C# project is analyzed
+independently from the `AdditionalFiles` MSBuild supplies to that compilation:
+
+- zero `architecture.contract.json` files -> intentional no-op;
+- one -> that project's contract;
+- more than one -> fail-safe AARC001.
+
+Different projects may reference different same-basename contract files, or intentionally share one
+physical contract file. Analyzer presence alone does not opt a project into enforcement.
+
+A source compilation may still classify referenced metadata types from another project/assembly
+through the same marker-first / namespace-fallback rules, so a Consumer contract can govern direct
+Consumer -> Producer source references while Producer is separately governed by its own contract.
+
+Test/tooling/analyzer projects are not detected heuristically. Omit the contract to exclude them, or
+provide one to govern them explicitly. See [`multi-project-design.md`](multi-project-design.md)
+and [`tests/MultiProjectGate/README.md`](../tests/MultiProjectGate/README.md).
+
 ## 2. Contract schema
 
 The contract is a single JSON object. `schemaVersion` is optional for backward compatibility
