@@ -29,15 +29,15 @@ Baseline schema v1:
   "entries": [
     {
       "diagnosticId": "AARC002",
-      "key": "MyApp.Domain.LegacyBridge -> MyApp.Application.LegacyService",
-      "message": "'MyApp.Domain.LegacyBridge' (Domain) must not depend on ..."
+      "key": "MyApp.Domain.LegacyBridge -> MyApp.Application.LegacyService"
     }
   ]
 }
 ```
 
-Only `diagnosticId` + `key` participate in matching. `message` is generated review metadata and
-may change without changing the baseline identity.
+Only `diagnosticId` + `key` participate in matching. The generator intentionally emits only
+those two fields so regeneration produces a canonical deterministic file. The loader tolerates an
+optional string `message` field as human-authored metadata, but regeneration does not preserve it.
 
 ## Stable identity
 
