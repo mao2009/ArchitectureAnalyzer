@@ -27,8 +27,8 @@ namespace ArchitectureAnalyzer.Configuration;
 ///     <c>enabled</c> — bool — default <c>true</c> — invalid <c>true</c> — safety-critical
 ///   </description></item>
 ///   <item><description>
-///     <c>rule.AARC002.enabled</c> / <c>rule.AARC003.enabled</c> — bool — default <c>true</c> —
-///     invalid <c>true</c> — safety-critical
+///     <c>rule.AARC002.enabled</c> / <c>rule.AARC003.enabled</c> / <c>rule.AARC010.enabled</c>
+///     — bool — default <c>true</c> — invalid <c>true</c> — safety-critical
 ///   </description></item>
 ///   <item><description>
 ///     <c>contract_required</c> — bool — default <c>true</c> — invalid <c>true</c> — safety-critical
@@ -42,7 +42,7 @@ namespace ArchitectureAnalyzer.Configuration;
 ///     safety-critical (the default is permissive, so the invalid fallback enforces instead)
 ///   </description></item>
 ///   <item><description>
-///     <c>skip_generated_code</c> (AARC002/AARC003) — bool — default <c>true</c> —
+///     <c>skip_generated_code</c> (AARC002/AARC003/AARC010) — bool — default <c>true</c> —
 ///     invalid <b><c>false</c></b> — safety-critical (skipping narrows detection coverage)
 ///   </description></item>
 ///   <item><description>
@@ -232,7 +232,7 @@ public static class ConfigReader
     /// <summary>
     /// Every key this analyzer understands. Any other key containing
     /// <c>.architecture_analyzer.</c> is a typo (in the property name or in the diagnostic-id
-    /// segment) and is reported as AARC009. Only AARC002/AARC003 have honored rule toggles, so a
+    /// segment) and is reported as AARC009. Only AARC002/AARC003/AARC010 have honored rule toggles, so a
     /// <c>rule.AARC004.enabled</c> entry is a silent no-op and is flagged too.
     /// </summary>
     private static readonly HashSet<string> KnownKeys = new(StringComparer.OrdinalIgnoreCase)
