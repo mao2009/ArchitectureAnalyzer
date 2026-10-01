@@ -172,6 +172,20 @@ For example:
 That keeps routing reviewable in normal MSBuild rather than duplicating project scoping inside the
 contract schema.
 
+## Baselines in multi-project solutions
+
+Baselines follow the same compilation boundary as contracts.
+
+Each governed project may provide zero or one `architecture.baseline.json` in its own
+`AdditionalFiles`. A Producer baseline cannot suppress Consumer diagnostics and vice versa.
+
+Projects may intentionally share a physical baseline file, but doing so is an explicit MSBuild
+choice and is usually less useful than project-local debt lists because stable keys describe
+diagnostics in one compilation's policy context.
+
+A project with no Architecture Contract still no-ops; a baseline file is meaningful only for a
+governed compilation.
+
 ## Failure isolation
 
 One project's invalid contract must not affect another compilation.
