@@ -393,7 +393,7 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             section = property.Value;
         }
 
-        if (propertyCount == 0 || section.ValueKind == JsonValueKind.Null)
+        if (propertyCount == 0)
         {
             return (ImmutableArray<AllowedDependencyRule>.Empty, null);
         }
