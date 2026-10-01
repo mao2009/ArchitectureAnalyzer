@@ -1,0 +1,9 @@
+// Injected by verify-multi-project.sh only.
+using MultiProject.Producer;
+
+namespace MultiProject.Consumer;
+
+public sealed class ConsumerViolation
+{
+    public ProducerService Service { get; } = new();
+}

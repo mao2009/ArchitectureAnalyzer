@@ -1,6 +1,6 @@
 # Multi-project contract scoping design
 
-Status: accepted design target for issue #23; integration coverage is tracked by #4.
+Status: implemented by #4 with the real multi-project integration gate.
 
 ## Goal
 
@@ -185,9 +185,9 @@ Examples:
 
 No static/global mutable contract cache may cross compilation boundaries.
 
-## Integration fixture required by #4
+## Integration fixture
 
-The implementation/integration PR should add a real multi-project fixture with at least:
+The implementation adds a real multi-project fixture with:
 
 ```text
 MultiProjectGate/

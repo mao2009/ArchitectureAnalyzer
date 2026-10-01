@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Consumer/Consumer.csproj" />
+    <ProjectReference Include="../Producer/Producer.csproj" />
+  </ItemGroup>
+</Project>

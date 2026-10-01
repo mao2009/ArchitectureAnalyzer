@@ -43,6 +43,12 @@ jobs:
           chmod +x tests/GateVerification/verify-gate.sh
           tests/GateVerification/verify-gate.sh
 
+      - name: Verify multi-project contract isolation
+        # Analyzer reference is shared across projects; contracts remain compilation-local.
+        run: |
+          chmod +x tests/MultiProjectGate/verify-multi-project.sh
+          tests/MultiProjectGate/verify-multi-project.sh
+
       - name: Restore representative performance benchmark
         run: dotnet restore tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
 

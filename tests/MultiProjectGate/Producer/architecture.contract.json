@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 5,
+  "unclassifiedCode": "error",
+  "layers": [
+    {
+      "name": "Producer",
+      "namespaceRoots": [ "MultiProject.Producer" ]
+    }
+  ],
+  "forbiddenApis": [
+    {
+      "layer": "Producer",
+      "type": "System.Console",
+      "reason": "Producer code must not write directly to the console."
+    }
+  ]
+}

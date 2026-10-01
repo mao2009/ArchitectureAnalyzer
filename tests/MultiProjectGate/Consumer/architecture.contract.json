@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 5,
+  "unclassifiedCode": "error",
+  "layers": [
+    {
+      "name": "Consumer",
+      "namespaceRoots": [ "MultiProject.Consumer" ]
+    },
+    {
+      "name": "Producer",
+      "namespaceRoots": [ "MultiProject.Producer" ]
+    }
+  ],
+  "forbiddenDependencies": [
+    {
+      "from": "Consumer",
+      "to": "Producer",
+      "reason": "Consumer must access Producer only through an adapter boundary."
+    }
+  ]
+}

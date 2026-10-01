@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Producer/Producer.csproj" />
+  <Project Path="Consumer/Consumer.csproj" />
+  <Project Path="Tests/Tests.csproj" />
+  <Project Path="Tooling/Tooling.csproj" />
+</Solution>

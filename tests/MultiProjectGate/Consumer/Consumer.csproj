@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Producer/Producer.csproj" />
+    <AdditionalFiles Include="architecture.contract.json" />
+  </ItemGroup>
+</Project>
