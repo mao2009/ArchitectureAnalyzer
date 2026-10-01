@@ -16,7 +16,8 @@ architecture.baseline.json (opt.)   (a2) known-debt baseline / ratchet
 ArchitectureContractAnalyzer        (b) generic DiagnosticAnalyzer
         |  Roslyn semantic model      +  .editorconfig/MSBuild operational options
         v
-AARC001 .. AARC012                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
+AARC001 .. AARC012                  (c) normal diagnostics
+AARC013 (capture-only)               (c2) generator transport; never emitted in normal mode
         |
         v
 dotnet build fails                  (d) locally, in the IDE, and in CI - the same command
@@ -62,12 +63,14 @@ through v5 and optionally add a baseline v1 file:
 
 The analyzer parses the baseline once per compilation and matches only exact
 `diagnosticId + stable key` pairs. Baselinable IDs are AARC002–AARC007 and AARC010–AARC011.
-AARC001/AARC008/AARC009/AARC012 are integrity/configuration diagnostics and cannot be baselined.
+AARC001/AARC008/AARC009/AARC012 are integrity/configuration diagnostics and cannot be baselined;
+AARC013 is generator transport metadata and cannot be baselined either.
 
-Every emitted baselinable diagnostic carries an `architectureBaselineKey` property so the
-generator can reconstruct the current debt set without depending on line/column numbers. Normal
-builds enforce the baseline; the generator uses the compiler-visible
-`ArchitectureAnalyzerBaselineMode=ignore` property only during capture.
+Every baselinable diagnostic carries a stable semantic identity internally. Normal builds enforce
+`architecture.baseline.json`; the generator uses the compiler-visible
+`ArchitectureAnalyzerBaselineMode=ignore` property and receives companion AARC013 capture
+records containing the original diagnostic ID and stable key. AARC013 is never emitted in normal
+`enforce` mode.
 
 See [`baseline.md`](baseline.md) for schema, stable-key rules and the incremental-adoption
 workflow.
