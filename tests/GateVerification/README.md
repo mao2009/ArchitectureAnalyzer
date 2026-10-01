@@ -6,16 +6,19 @@ is a minimal class library that wires the analyzer up exactly the way any other 
 (`ProjectReference` with `OutputItemType="Analyzer"`, plus an `AdditionalFiles` contract), and it
 is committed in a clean, buildable state.
 
-[`verify-gate.sh`](verify-gate.sh) drives three real enforcement scenarios. It first injects
+[`verify-gate.sh`](verify-gate.sh) drives four real enforcement scenarios. It first injects
 [`Fixtures/Violation.cs.txt`](Fixtures/Violation.cs.txt) and requires AARC002 from an explicit
 `forbiddenDependencies` edge. It then injects
 [`Fixtures/AllowlistViolation.cs.txt`](Fixtures/AllowlistViolation.cs.txt) and requires AARC002
-from a schema-v3 `allowedDependencies` violation with no matching explicit deny edge. Finally it
-injects [`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside
-every declared root and requires AARC010 while `unclassifiedCode` is `"error"`. The script
-temporarily switches coverage to `"ignore"`, proves the identical coverage-gap source then builds
-successfully, restores the strict contract, removes all injected files, and requires a final clean
-build.
+from a schema-v3 `allowedDependencies` violation with no matching explicit deny edge. Next it
+temporarily replaces the contract with
+[`Fixtures/CyclicContract.json.txt`](Fixtures/CyclicContract.json.txt) and requires AARC011 from
+schema-v4 `dependencyGraph.requireAcyclic`. Finally it injects
+[`Fixtures/CoverageGap.cs.txt`](Fixtures/CoverageGap.cs.txt) into a namespace outside every
+declared root and requires AARC010 while `unclassifiedCode` is `"error"`. The script temporarily
+switches coverage to `"ignore"`, proves the identical coverage-gap source then builds
+successfully, restores the strict acyclic contract, removes all injected files, and requires a
+final clean build.
 
 Both fixtures use `.cs.txt` so the default compile glob never picks them up. Cleanup restores the
 tracked contract even if an intermediate assertion fails.

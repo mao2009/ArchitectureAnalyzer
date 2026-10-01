@@ -58,7 +58,7 @@ public static class ArchitectureContractLoader
     public const string ContractFileName = "architecture.contract.json";
 
     /// <summary>The newest Architecture Contract schema understood by this analyzer.</summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     /// <summary>The oldest explicit schema version this analyzer still accepts.</summary>
     public const int MinimumSupportedSchemaVersion = 1;
@@ -240,6 +240,12 @@ public static class ArchitectureContractLoader
             return ArchitectureContractLoadResult.Failure(allowedDependenciesResult.Error);
         }
 
+        var dependencyGraphResult = ReadDependencyGraph(root, schemaVersionResult.Version);
+        if (dependencyGraphResult.Error is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(dependencyGraphResult.Error);
+        }
+
         var apisBuilder = ImmutableArray.CreateBuilder<ForbiddenApiRule>();
         if (!TryGetArray(root, "forbiddenApis", out var apisElement, out var apisError))
         {
@@ -365,7 +371,73 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             layerDeclarationResult.Declaration,
             interopBuilder.ToImmutable(),
             unclassifiedCodeResult.Policy,
-            allowedDependenciesResult.Rules));
+            allowedDependenciesResult.Rules,
+            dependencyGraphResult.Policy));
+    }
+
+    private static (DependencyGraphPolicy? Policy, string? Error) ReadDependencyGraph(
+        JsonElement root,
+        int schemaVersion)
+    {
+        var propertyCount = 0;
+        var section = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "dependencyGraph", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            propertyCount++;
+            if (propertyCount > 1)
+            {
+                return (null, "property 'dependencyGraph' must not appear more than once");
+            }
+
+            section = property.Value;
+        }
+
+        if (propertyCount == 0)
+        {
+            return (null, null);
+        }
+
+        if (schemaVersion < 4)
+        {
+            return (null, "property 'dependencyGraph' requires schemaVersion 4");
+        }
+
+        if (section.ValueKind != JsonValueKind.Object)
+        {
+            return (null, "property 'dependencyGraph' must be a JSON object");
+        }
+
+        var requireAcyclicCount = 0;
+        var requireAcyclic = false;
+        foreach (var property in section.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "requireAcyclic", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            requireAcyclicCount++;
+            if (requireAcyclicCount > 1)
+            {
+                return (null,
+                    "property 'requireAcyclic' must not appear more than once in dependencyGraph");
+            }
+
+            if (property.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return (null,
+                    "property 'requireAcyclic' of dependencyGraph must be a boolean when present");
+            }
+
+            requireAcyclic = property.Value.GetBoolean();
+        }
+
+        return (new DependencyGraphPolicy(requireAcyclic), null);
     }
 
     private static (ImmutableArray<AllowedDependencyRule> Rules, string? Error) ReadAllowedDependencies(

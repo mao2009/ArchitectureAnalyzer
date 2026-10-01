@@ -242,6 +242,22 @@ public sealed class InteropBoundaryRule
 }
 
 /// <summary>
+/// Optional policy governing the explicitly declared positive dependency graph.
+/// </summary>
+public sealed class DependencyGraphPolicy
+{
+    /// <summary>Creates a dependency-graph policy.</summary>
+    /// <param name="requireAcyclic">Whether explicit allowed-dependency edges must form a DAG.</param>
+    public DependencyGraphPolicy(bool requireAcyclic)
+    {
+        RequireAcyclic = requireAcyclic;
+    }
+
+    /// <summary>Whether the explicit allowed-dependency graph must be acyclic.</summary>
+    public bool RequireAcyclic { get; }
+}
+
+/// <summary>
 /// Policy for source types that cannot be assigned to any declared architecture layer.
 /// </summary>
 public enum UnclassifiedCodePolicy
@@ -273,6 +289,7 @@ public sealed class ArchitectureContract
     /// <param name="interopBoundaryRules">Interop-boundary rules; empty when the section is absent.</param>
     /// <param name="unclassifiedCode">Coverage policy for types that resolve to no declared layer.</param>
     /// <param name="allowedDependencies">Optional positive dependency rules, empty when absent.</param>
+    /// <param name="dependencyGraph">Optional graph-level policy for the declared positive dependency graph.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
@@ -280,7 +297,8 @@ public sealed class ArchitectureContract
         LayerDeclaration? layerDeclaration = null,
         ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null,
         UnclassifiedCodePolicy unclassifiedCode = UnclassifiedCodePolicy.Ignore,
-        ImmutableArray<AllowedDependencyRule>? allowedDependencies = null)
+        ImmutableArray<AllowedDependencyRule>? allowedDependencies = null,
+        DependencyGraphPolicy? dependencyGraph = null)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
@@ -289,6 +307,7 @@ public sealed class ArchitectureContract
         ForbiddenApis = forbiddenApis.IsDefault ? ImmutableArray<ForbiddenApiRule>.Empty : forbiddenApis;
         LayerDeclaration = layerDeclaration;
         UnclassifiedCode = unclassifiedCode;
+        DependencyGraph = dependencyGraph;
         AllowedDependencies = allowedDependencies ?? ImmutableArray<AllowedDependencyRule>.Empty;
         if (AllowedDependencies.IsDefault)
         {
@@ -347,6 +366,9 @@ public sealed class ArchitectureContract
 
     /// <summary>Positive dependency allowlists, in contract order.</summary>
     public ImmutableArray<AllowedDependencyRule> AllowedDependencies { get; }
+
+    /// <summary>Optional graph-level policy for explicit allowed-dependency edges.</summary>
+    public DependencyGraphPolicy? DependencyGraph { get; }
 
 /// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
     public LayerDeclaration? LayerDeclaration { get; }

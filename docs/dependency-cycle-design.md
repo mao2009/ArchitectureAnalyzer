@@ -1,6 +1,6 @@
 # Declared dependency-cycle detection design
 
-Status: accepted design target for issue #25; implementation is tracked by #7.
+Status: implemented by #7 as Architecture Contract schema v4 / AARC011.
 
 ## Goal
 
@@ -193,9 +193,9 @@ compilation-end diagnostic only when `requireAcyclic=true`.
 
 No syntax/symbol callback or additional source scan should be introduced.
 
-## Implementation requirements for #7
+## Implementation shape
 
-The implementation PR should:
+The implementation follows this design:
 
 - advance `CurrentSchemaVersion` to 4 while preserving versionless/v1/v2/v3 behavior;
 - add a validated immutable `DependencyGraphPolicy` or equivalent contract model;

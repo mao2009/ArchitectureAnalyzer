@@ -223,4 +223,5 @@ The implementation follows this design:
 - no transitive dependency inference;
 - no arbitrary graph DSL;
 - no project/repository-specific layer names;
-- no cycle detection in this feature (tracked separately by #25/#7).
+- no cycle detection in schema v3 itself; declared-graph DAG enforcement is the separate
+  schema-v4 `dependencyGraph.requireAcyclic` / AARC011 feature.

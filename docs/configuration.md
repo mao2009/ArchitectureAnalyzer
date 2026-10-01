@@ -142,9 +142,10 @@ prefix is visible instead of becoming a silent no-op.
 
 ## 5. What configuration cannot do
 
-Configuration cannot add, remove or reinterpret a rule. It cannot declare a layer, forbid an edge,
-forbid an API, register a marker attribute or move an interop boundary — all of that requires
-editing `architecture.contract.json`, where it is reviewable as an architectural change. The
+Configuration cannot add, remove or reinterpret a rule. It cannot declare a layer, forbid/allow
+an edge, require an acyclic declared graph, forbid an API, register a marker attribute or move an
+interop boundary — all of that requires editing `architecture.contract.json`, where it is
+reviewable as an architectural change. The
 strongest thing `.editorconfig` can do is stop the analyzer from looking, which is visible in the
 configuration file itself rather than hidden in a rule definition.
 
@@ -162,6 +163,7 @@ dotnet_diagnostic.AARC002.severity = error
 dotnet_diagnostic.AARC003.severity = error
 dotnet_diagnostic.AARC006.severity = warning
 dotnet_diagnostic.AARC010.severity = error
+dotnet_diagnostic.AARC011.severity = error
 
 # Operational: check declaration/namespace drift repo-wide.
 dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer = true
@@ -179,7 +181,7 @@ dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled = false
 ## 7. See also
 
 - [`architecture.md`](architecture.md) — the contract schema and the analysis pipeline
-- [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008–AARC010
+- [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008–AARC011
 - [`design.md`](design.md) — why the contract, not the analyzer or its configuration, is the SSOT
 - [`compatibility/psxrecomp-analyzer-baseline.md`](compatibility/psxrecomp-analyzer-baseline.md) —
   capability baseline for the PSXRecomp.Analyzer consumer

@@ -39,7 +39,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.MultipleLayerDeclarations,
         ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
         ArchitectureDiagnostics.InteropBoundaryViolation,
-        ArchitectureDiagnostics.ArchitectureCoverageGap);
+        ArchitectureDiagnostics.ArchitectureCoverageGap,
+        ArchitectureDiagnostics.DeclaredDependencyCycle);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -133,6 +134,15 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var contract = result.Contract!;
 
+        // DAG validation is contract-graph work only. Compute the canonical cycle list once per
+        // compilation and report it at compilation end; no source syntax/symbol scan is added.
+        var declaredDependencyCycles = DependencyCycleDetector.FindCycles(contract);
+        if (!declaredDependencyCycles.IsEmpty)
+        {
+            context.RegisterCompilationEndAction(endContext =>
+                ReportDeclaredDependencyCycles(endContext, declaredDependencyCycles));
+        }
+
         // Layer-classification (AARC004/AARC005/AARC006) driven by symbol metadata so that
         // marker attributes, nesting, partial parts and generic definitions are all visible.
         if (contract.LayerDeclaration is not null)
@@ -192,6 +202,19 @@ context.RegisterOperationBlockAction(blockContext =>
 
         context.RegisterCompilationEndAction(endContext =>
             ReportConfigDiagnostics(endContext, configDiagnostics));
+    }
+
+    private static void ReportDeclaredDependencyCycles(
+        CompilationAnalysisContext context,
+        ImmutableArray<ImmutableArray<string>> cycles)
+    {
+        foreach (var cycle in cycles)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                ArchitectureDiagnostics.DeclaredDependencyCycle,
+                Location.None,
+                string.Join(" -> ", cycle)));
+        }
     }
 
     private static List<AdditionalText> FindContractFiles(ImmutableArray<AdditionalText> additionalFiles)

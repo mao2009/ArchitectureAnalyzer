@@ -11,6 +11,14 @@
       "from": "Application",
       "to": [ "Domain" ],
       "reason": "Application may depend only on Domain."
+    },
+    {
+      "from": "Domain",
+      "to": [ "Shared" ]
+    },
+    {
+      "from": "Shared",
+      "to": [ "Application" ]
     }
   ],
   "forbiddenDependencies": [
