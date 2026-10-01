@@ -1,0 +1,11 @@
+// Deliberately stored as .cs.txt so the default **/*.cs compile glob never picks it up.
+// verify-gate.sh copies this into SampleConsumer only while exercising AARC010.
+
+namespace SampleConsumer.Tools;
+
+/// <summary>
+/// Intentionally sits outside every namespaceRoot in the strict v2 contract.
+/// </summary>
+public sealed class CoverageGap
+{
+}
