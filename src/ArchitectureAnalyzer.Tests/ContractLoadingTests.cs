@@ -344,20 +344,14 @@ public sealed class ContractLoadingTests
     }
 
     [Theory]
-    [InlineData(""1"")]
+    [InlineData("\"1\"")]
     [InlineData("null")]
     [InlineData("1.5")]
     [InlineData("true")]
     public void Loader_InvalidSchemaVersionType_Fails(string versionJson)
     {
-        var contract = $"""
-            {
-              "schemaVersion": {{versionJson}},
-              "layers": [
-                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
-              ]
-            }
-            """;
+        var contract = "{ \"schemaVersion\": " + versionJson
+            + ", \"layers\": [{ \"name\": \"Domain\", \"namespaceRoots\": [\"Sample.Domain\"] }] }";
 
         var result = ArchitectureContractLoader.Load(contract);
 
