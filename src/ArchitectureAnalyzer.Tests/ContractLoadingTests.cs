@@ -949,6 +949,46 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
+    public void Loader_ExceptionEntry_MustBeObject()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [ "AARC002" ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("each entry of 'exceptions' must be a JSON object", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_ExceptionSourceType_IsRequired()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC002",
+                  "targetType": "Sample.Application.LegacyService",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("in 'exceptions': required property 'sourceType' is missing", result.ErrorReason);
+    }
+
+    [Fact]
     public void Loader_Aarc002Exception_Parses()
     {
         const string contract = """
@@ -1093,6 +1133,30 @@ public sealed class ContractLoadingTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("AARC002 exception must not declare 'apiType' or 'member'", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_Aarc003Exception_MissingApiType_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyClock",
+                  "member": "Now",
+                  "justification": "Required."
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("in AARC003 exception: required property 'apiType' is missing", result.ErrorReason);
     }
 
     [Fact]
