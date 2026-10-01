@@ -17,10 +17,10 @@ internal static class Program
 
     // CI budgets are intentionally much wider than the measured baseline. They are a smoke guard
     // for order-of-magnitude regressions, not a microbenchmark assertion against shared runners.
-    private const double LoaderBudgetMs = 1_500;
-    private const double DependencyBudgetMs = 5_000;
-    private const double ForbiddenApiBudgetMs = 5_000;
-    private const double FullBudgetMs = 7_000;
+    private const double LoaderBudgetMs = 500;
+    private const double DependencyBudgetMs = 2_500;
+    private const double ForbiddenApiBudgetMs = 3_000;
+    private const double FullBudgetMs = 3_000;
 
     private static readonly ImmutableArray<MetadataReference> References = CreateFrameworkReferences();
 
