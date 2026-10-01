@@ -175,7 +175,7 @@ public static class ArchitectureContractLoader
         }
 
         var dependenciesBuilder = ImmutableArray.CreateBuilder<ForbiddenDependencyRule>();
-        var dependencyKeys = new HashSet<string>(StringComparer.Ordinal);
+        var dependencyKeys = new HashSet<(string From, string To)>();
         if (!TryGetArray(root, "forbiddenDependencies", out var dependenciesElement, out var dependenciesError))
         {
             return ArchitectureContractLoadResult.Failure(dependenciesError!);
@@ -211,8 +211,7 @@ public static class ArchitectureContractLoader
                     return ArchitectureContractLoadResult.Failure(UndeclaredLayer(to!, "forbiddenDependencies"));
                 }
 
-                var dependencyKey = from + "" + to;
-                if (!dependencyKeys.Add(dependencyKey))
+                if (!dependencyKeys.Add((from!, to!)))
                 {
                     return ArchitectureContractLoadResult.Failure(
                         $"forbidden dependency '{from}' -> '{to}' is declared more than once");
@@ -457,7 +456,25 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
 
     private static string? ValidateSchemaVersion(JsonElement root)
     {
-        if (!root.TryGetProperty("schemaVersion", out var versionElement))
+        var versionCount = 0;
+        var versionElement = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "schemaVersion", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            versionCount++;
+            if (versionCount > 1)
+            {
+                return "property 'schemaVersion' must not appear more than once";
+            }
+
+            versionElement = property.Value;
+        }
+
+        if (versionCount == 0)
         {
             // Versionless contracts predate explicit schema versioning. During the 0.x line they
             // are intentionally interpreted as schema v1 so existing consumers keep working.
