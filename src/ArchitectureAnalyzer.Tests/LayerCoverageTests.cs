@@ -165,6 +165,29 @@ public sealed class LayerCoverageTests
     }
 
     [Fact]
+    public async Task StrictCoverage_NestedType_InheritsContainingTypeMarker()
+    {
+        var test = new ArchitectureAnalyzerTest(StrictMarkerContract)
+        {
+            TestCode = """
+                namespace Sample.Tools
+                {
+                    [Sample.Arch.DomainMarker]
+                    public class Outer
+                    {
+                        public class Inner
+                        {
+                        }
+                    }
+                }
+                """,
+        };
+        test.TestState.Sources.Add(("/0/Markers.cs", MarkerSource));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
     public async Task StrictCoverage_MarkerNamespace_IsExempt()
     {
         var test = new ArchitectureAnalyzerTest(StrictMarkerContract)
