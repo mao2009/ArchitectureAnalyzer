@@ -434,14 +434,26 @@ public sealed class ContractLoadingTests
     }
 
     [Theory]
-    [InlineData(""strict"")]
-    [InlineData(""ERROR"")]
+    [InlineData("strict")]
+    [InlineData("ERROR")]
+    public void Loader_InvalidUnclassifiedCodeString_Fails(string policy)
+    {
+        var contract = "{ \"schemaVersion\": 2, \"unclassifiedCode\": \"" + policy
+            + "\", \"layers\": [{ \"name\": \"Domain\", \"namespaceRoots\": [\"Sample.Domain\"] }] }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'unclassifiedCode' must be 'ignore' or 'error'", result.ErrorReason);
+    }
+
+    [Theory]
     [InlineData("true")]
     [InlineData("null")]
-    public void Loader_InvalidUnclassifiedCode_Fails(string policyJson)
+    public void Loader_NonStringUnclassifiedCode_Fails(string policyJson)
     {
-        var contract = "{ "schemaVersion": 2, "unclassifiedCode": " + policyJson
-            + ", "layers": [{ "name": "Domain", "namespaceRoots": ["Sample.Domain"] }] }";
+        var contract = "{ \"schemaVersion\": 2, \"unclassifiedCode\": " + policyJson
+            + ", \"layers\": [{ \"name\": \"Domain\", \"namespaceRoots\": [\"Sample.Domain\"] }] }";
 
         var result = ArchitectureContractLoader.Load(contract);
 
