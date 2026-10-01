@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace ArchitectureAnalyzer.BaselineTool;
@@ -121,6 +122,9 @@ internal static class Program
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                     WriteIndented = true,
+                    // Baseline keys are review artifacts (for example A -> B). Keep harmless
+                    // punctuation readable instead of serializing '>' as \u003E.
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 });
             File.WriteAllText(outputPath, json + Environment.NewLine);
 
