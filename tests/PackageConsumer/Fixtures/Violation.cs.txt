@@ -1,0 +1,20 @@
+// Stored as .cs.txt so the SDK's default compile glob does not include it.
+// verify-package-consumer.sh copies this into Consumer/Domain/Violation.cs temporarily.
+using PackageConsumer.Application;
+
+namespace PackageConsumer.Domain;
+
+/// <summary>
+/// A Domain type that reaches into the Application layer, which the contract forbids.
+/// </summary>
+public sealed class ViolatingEntity
+{
+    /// <summary>Routes through the forbidden outer layer.</summary>
+    /// <param name="entity">The entity to describe.</param>
+    /// <returns>The entity name.</returns>
+    public string Describe(DomainEntity entity)
+    {
+        var service = new AppService();
+        return service.Describe(entity);
+    }
+}
