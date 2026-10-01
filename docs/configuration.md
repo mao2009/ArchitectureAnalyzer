@@ -12,7 +12,7 @@ It is deliberately *not* about **what the rules are**. That is the Architecture 
 |---|---|---|
 | File | `architecture.contract.json` (via `AdditionalFiles`) | `.editorconfig` / `.globalconfig` |
 | Answers | *What is the architecture?* | *How does the analyzer run here?* |
-| Owns | layers, dependency/API rules, marker/interop boundaries, coverage/DAG policy, exact justified long-lived exceptions | severity, on/off switches, generated-code handling, rollout suppression |
+| Owns | layers, dependency/API rules, marker/interop boundaries, coverage/DAG policy, exact justified long-lived exceptions | severity, on/off switches, generated-code handling, rollout suppression, temporary baseline capture mode |
 | Schema reference | [`architecture.md` §2](architecture.md#2-contract-schema) | this document |
 | Reviewed as | an architectural decision | a build/tooling decision |
 
@@ -45,6 +45,33 @@ Per-line suppression uses the usual `#pragma warning disable AARC002` /
 AARC002/AARC003 are checked before the analyzer emits a diagnostic; these standard Roslyn controls
 apply afterward and therefore remain the compiler's final suppression layer. Per-diagnostic
 guidance lives in [`diagnostics.md`](diagnostics.md).
+
+## Baseline capture build property
+
+The analyzer NuGet package ships a `buildTransitive` props file that exposes one MSBuild property
+to Roslyn:
+
+| Property | Values | Default | Scope | Purpose |
+|---|---|---|---|---|
+| `ArchitectureAnalyzerBaselineMode` | `enforce` / `ignore` | `enforce` | compilation | `ignore` bypasses baseline matching so the generator can capture the complete current debt set |
+
+The command-line form is:
+
+```bash
+dotnet build MyApp.csproj -p:ArchitectureAnalyzerBaselineMode=ignore
+```
+
+Normal developer/CI builds should not set this property. The supported
+`architecture-baseline generate` tool sets it only for its capture build. An invalid value reports
+AARC008 and falls back to `enforce`, so a typo cannot silently disable ratcheting.
+
+Project-reference/source consumers that need the generator must expose the property themselves:
+
+```xml
+<ItemGroup>
+  <CompilerVisibleProperty Include="ArchitectureAnalyzerBaselineMode" />
+</ItemGroup>
+```
 
 ## 3. Operational properties
 
@@ -191,6 +218,7 @@ dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC010.enabled = false
 - [`architecture.md`](architecture.md) — the contract schema and the analysis pipeline
 - [`diagnostics.md`](diagnostics.md) — per-diagnostic reference, including AARC008–AARC011
 - [`architecture-exceptions-design.md`](architecture-exceptions-design.md) — long-lived contract exceptions vs Roslyn suppression
+- [`baseline.md`](baseline.md) — known-debt baseline schema, generation and ratcheting
 - [`design.md`](design.md) — why the contract, not the analyzer or its configuration, is the SSOT
 - [`compatibility/psxrecomp-analyzer-baseline.md`](compatibility/psxrecomp-analyzer-baseline.md) —
   capability baseline for the PSXRecomp.Analyzer consumer
