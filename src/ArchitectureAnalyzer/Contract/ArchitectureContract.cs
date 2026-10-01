@@ -175,6 +175,69 @@ public sealed class MarkerAttributeDefinition
 }
 
 /// <summary>
+/// Base type for a narrow, justified architecture exception declared by the consumer.
+/// </summary>
+public abstract class ArchitectureException
+{
+    /// <summary>Creates an architecture exception.</summary>
+    protected ArchitectureException(string diagnosticId, string sourceType, string justification)
+    {
+        DiagnosticId = diagnosticId;
+        SourceType = sourceType;
+        Justification = justification;
+    }
+
+    /// <summary>The diagnostic ID this exception can suppress.</summary>
+    public string DiagnosticId { get; }
+
+    /// <summary>Fully qualified source type name matched ordinally.</summary>
+    public string SourceType { get; }
+
+    /// <summary>Required human-readable reason the exception exists.</summary>
+    public string Justification { get; }
+}
+
+/// <summary>
+/// Exact AARC002 exception for one source type -> target type dependency.
+/// </summary>
+public sealed class DependencyArchitectureException : ArchitectureException
+{
+    /// <summary>Creates an exact AARC002 dependency exception.</summary>
+    public DependencyArchitectureException(string sourceType, string targetType, string justification)
+        : base("AARC002", sourceType, justification)
+    {
+        TargetType = targetType;
+    }
+
+    /// <summary>Fully qualified target type name matched ordinally.</summary>
+    public string TargetType { get; }
+}
+
+/// <summary>
+/// Exact AARC003 exception for one source type using one API type/member.
+/// </summary>
+public sealed class ForbiddenApiArchitectureException : ArchitectureException
+{
+    /// <summary>Creates an exact AARC003 forbidden-API exception.</summary>
+    public ForbiddenApiArchitectureException(
+        string sourceType,
+        string apiType,
+        string member,
+        string justification)
+        : base("AARC003", sourceType, justification)
+    {
+        ApiType = apiType;
+        Member = member;
+    }
+
+    /// <summary>Fully qualified API declaring type matched ordinally.</summary>
+    public string ApiType { get; }
+
+    /// <summary>Normalized member name matched ordinally (for example Now or .ctor).</summary>
+    public string Member { get; }
+}
+
+/// <summary>
 /// Optional declaration-rules controlling AARC004/AARC005/AARC006. When <see langword="null"/>
 /// the analyzer keeps its namespace-only behaviour (backward compatible).
 /// </summary>
@@ -280,6 +343,8 @@ public sealed class ArchitectureContract
     private readonly ImmutableDictionary<string, string> _markerLayerByFqn;
     private readonly ImmutableDictionary<string, InteropBoundaryRule> _interopRulesByAttribute;
     private readonly ImmutableDictionary<string, AllowedDependencyRule> _allowedDependenciesBySource;
+    private readonly ImmutableHashSet<(string SourceType, string TargetType)> _dependencyExceptionKeys;
+    private readonly ImmutableHashSet<(string SourceType, string ApiType, string Member)> _apiExceptionKeys;
 
     /// <summary>Creates a contract from already-validated sections.</summary>
     /// <param name="layers">Declared layers.</param>
@@ -290,6 +355,7 @@ public sealed class ArchitectureContract
     /// <param name="unclassifiedCode">Coverage policy for types that resolve to no declared layer.</param>
     /// <param name="allowedDependencies">Optional positive dependency rules, empty when absent.</param>
     /// <param name="dependencyGraph">Optional graph-level policy for the declared positive dependency graph.</param>
+    /// <param name="exceptions">Narrow, justified AARC002/AARC003 exceptions.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
@@ -298,7 +364,8 @@ public sealed class ArchitectureContract
         ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null,
         UnclassifiedCodePolicy unclassifiedCode = UnclassifiedCodePolicy.Ignore,
         ImmutableArray<AllowedDependencyRule>? allowedDependencies = null,
-        DependencyGraphPolicy? dependencyGraph = null)
+        DependencyGraphPolicy? dependencyGraph = null,
+        ImmutableArray<ArchitectureException>? exceptions = null)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
@@ -308,6 +375,22 @@ public sealed class ArchitectureContract
         LayerDeclaration = layerDeclaration;
         UnclassifiedCode = unclassifiedCode;
         DependencyGraph = dependencyGraph;
+        Exceptions = exceptions ?? ImmutableArray<ArchitectureException>.Empty;
+        if (Exceptions.IsDefault)
+        {
+            Exceptions = ImmutableArray<ArchitectureException>.Empty;
+        }
+
+        _dependencyExceptionKeys = Exceptions
+            .OfType<DependencyArchitectureException>()
+            .Select(exception => (exception.SourceType, exception.TargetType))
+            .ToImmutableHashSet();
+
+        _apiExceptionKeys = Exceptions
+            .OfType<ForbiddenApiArchitectureException>()
+            .Select(exception => (exception.SourceType, exception.ApiType, exception.Member))
+            .ToImmutableHashSet();
+
         AllowedDependencies = allowedDependencies ?? ImmutableArray<AllowedDependencyRule>.Empty;
         if (AllowedDependencies.IsDefault)
         {
@@ -369,6 +452,9 @@ public sealed class ArchitectureContract
 
     /// <summary>Optional graph-level policy for explicit allowed-dependency edges.</summary>
     public DependencyGraphPolicy? DependencyGraph { get; }
+
+    /// <summary>Narrow, justified architecture exceptions, in contract order.</summary>
+    public ImmutableArray<ArchitectureException> Exceptions { get; }
 
 /// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
     public LayerDeclaration? LayerDeclaration { get; }
@@ -472,6 +558,18 @@ public sealed class ArchitectureContract
 
         reason = string.Empty;
         return false;
+    }
+
+    /// <summary>Whether one exact AARC002 source -> target type pair is excepted.</summary>
+    public bool IsDependencyExcepted(string sourceType, string targetType)
+    {
+        return _dependencyExceptionKeys.Contains((sourceType, targetType));
+    }
+
+    /// <summary>Whether one exact AARC003 source/API/member use is excepted.</summary>
+    public bool IsForbiddenApiExcepted(string sourceType, string apiType, string member)
+    {
+        return _apiExceptionKeys.Contains((sourceType, apiType, member));
     }
 
     /// <summary>
