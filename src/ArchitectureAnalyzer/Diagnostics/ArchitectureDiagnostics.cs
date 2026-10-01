@@ -179,7 +179,7 @@ public static class ArchitectureDiagnostics
         title: "Architecture baseline capture record",
         messageFormat: "Baseline capture for {0}: {1}",
         category: Category,
-        defaultSeverity: DiagnosticSeverity.Info,
+        defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Emitted only when ArchitectureAnalyzerBaselineMode=ignore so the baseline "
             + "generator can recover stable diagnostic identities from the compiler error log.",
