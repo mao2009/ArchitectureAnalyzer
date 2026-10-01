@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 4,
+  "unclassifiedCode": "error",
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
+    { "name": "Application", "namespaceRoots": [ "SampleConsumer.Application" ] },
+    { "name": "Shared", "namespaceRoots": [ "SampleConsumer.Shared" ] }
+  ],
+  "allowedDependencies": [
+    {
+      "from": "Application",
+      "to": [ "Domain" ],
+      "reason": "Application may depend only on Domain."
+    },
+    {
+      "from": "Domain",
+      "to": [ "Shared" ]
+    },
+    {
+      "from": "Shared",
+      "to": [ "Application" ]
+    }
+  ],
+  "forbiddenDependencies": [
+    {
+      "from": "Domain",
+      "to": "Application",
+      "reason": "Domain must not depend on the outer Application layer."
+    }
+  ],
+  "forbiddenApis": [
+    {
+      "layer": "Domain",
+      "type": "System.Console",
+      "reason": "Console I/O must be abstracted behind an Infrastructure adapter."
+    }
+  ],
+  "dependencyGraph": {
+    "requireAcyclic": true
+  }
+}
