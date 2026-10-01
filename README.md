@@ -256,6 +256,7 @@ dotnet test src/ArchitectureAnalyzer.Tests
 tests/GateVerification/verify-gate.sh                 # project-reference real-build proof; needs bash
 bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
+dotnet run --project tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj -c Release
 ```
 
 `verify-gate.sh` builds a sample consumer project, proves one exact schema-v5 AARC002 exception
@@ -264,6 +265,12 @@ schema-v3 allowlist and schema-v4 DAG gates, then proves the AARC010 strict/igno
 before restoring a clean build. The unit tests use an in-memory compilation; this script is the evidence that
 enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
+
+The representative performance benchmark generates three independent compilations with 300 source
+files total, measures contract loading, dependency analysis, forbidden-API analysis and the full
+schema-v5 analyzer, and asserts that the contract AdditionalFile is read exactly once per
+compilation. CI enforces broad regression budgets rather than fragile microbenchmark numbers. See
+[`docs/performance.md`](docs/performance.md).
 
 `verify-package-consumer.sh` covers the distribution boundary separately: it packs the analyzer
 from the current checkout into a temporary local NuGet feed, restores a standalone consumer with
@@ -282,6 +289,7 @@ Documentation map:
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
 | [`docs/architecture-exceptions-design.md`](docs/architecture-exceptions-design.md) | justified contract exceptions and Roslyn suppression precedence |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
+| [`docs/performance.md`](docs/performance.md) | representative workload, measured baseline and CI regression budgets |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
 ## License
