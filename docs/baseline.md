@@ -46,7 +46,8 @@ Baseline keys deliberately avoid line/column numbers.
 Supported architecture-policy diagnostics use these identities:
 
 - AARC002: original source type -> original target type;
-- AARC003: original owning member -> API declaring type/member;
+- AARC003: original owning member -> forbidden-API rule identity. Member-specific rules use
+  `Type.Member`; whole-type / any-member rules use `Type.*`;
 - AARC004: original type;
 - AARC005: original type;
 - AARC006: original type;
@@ -64,7 +65,8 @@ Integrity/configuration diagnostics are intentionally excluded:
 - AARC001 — invalid/missing architecture contract;
 - AARC008 — invalid operational configuration value;
 - AARC009 — unknown operational configuration property;
-- AARC012 — invalid architecture baseline.
+- AARC012 — invalid architecture baseline;
+- AARC013 — generator-only baseline capture record.
 
 Suppressing these through the baseline could make enforcement itself disappear or conceal broken
 tool configuration. Standard Roslyn severity controls still exist, but the supported ratcheting
@@ -120,16 +122,22 @@ The tool:
 
 1. invokes `dotnet build` with a temporary SARIF error log and
    `ArchitectureAnalyzerBaselineMode=ignore`;
-2. the analyzer reports all current architecture-policy diagnostics with an
-   `architectureBaselineKey` diagnostic property;
-3. the tool refuses to update the baseline when the build contains compiler errors or
-   ArchitectureAnalyzer integrity/configuration diagnostics;
+2. the analyzer reports all current architecture-policy diagnostics and, only in capture mode,
+   emits companion AARC013 warnings containing `diagnosticId + stable key`;
+3. the tool reads those explicit capture records from compiler SARIF and refuses to update the
+   baseline when the build contains compiler errors or ArchitectureAnalyzer
+   integrity/configuration diagnostics;
 4. it writes deterministic, sorted baseline entries for all current baselinable diagnostics;
 5. fixed diagnostics disappear on the next generation, naturally shrinking the baseline.
 
 The analyzer NuGet package exposes `ArchitectureAnalyzerBaselineMode` to Roslyn through a
 `buildTransitive` `CompilerVisibleProperty`. Normal mode is `enforce`; only the generator uses
 `ignore` while capturing the complete diagnostic set.
+
+AARC013 exists because compiler SARIF does not consistently preserve arbitrary
+`Diagnostic.Properties` across hosts. It is never emitted in normal `enforce` mode, so ordinary
+developer/CI builds do not gain an extra warning. The generator treats AARC013 as transport
+metadata, not architecture debt.
 
 ## Review and safety
 
