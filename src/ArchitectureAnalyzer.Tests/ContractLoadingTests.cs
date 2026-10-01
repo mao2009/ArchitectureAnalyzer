@@ -262,7 +262,7 @@ public sealed class ContractLoadingTests
     {
         const string contract = """
             {
-              "schemaVersion": "99",
+              "schemaVersion": 1,
               "layers": [
                 { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ], "color": "red" }
               ],
@@ -274,6 +274,199 @@ public sealed class ContractLoadingTests
 
         Assert.True(result.Succeeded, result.ErrorReason);
         Assert.Single(result.Contract!.Layers);
+    }
+
+    [Fact]
+    public void Loader_VersionlessContract_RemainsSchemaV1Compatible()
+    {
+        var result = ArchitectureContractLoader.Load(ValidContract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_SchemaVersionOne_Succeeds()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnsupportedSchemaVersion_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("unsupported schemaVersion '2'; supported schemaVersion is 1", result.ErrorReason);
+    }
+
+    [Fact]
+    public async Task UnsupportedSchemaVersion_ReportsContractInvalid()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var test = new ArchitectureAnalyzerTest(contract)
+        {
+            TestCode = CleanSource,
+        };
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "unsupported schemaVersion '2'; supported schemaVersion is 1"));
+
+        await test.RunAsync();
+    }
+
+    [Theory]
+    [InlineData("\"1\"")]
+    [InlineData("null")]
+    [InlineData("1.5")]
+    [InlineData("true")]
+    public void Loader_InvalidSchemaVersionType_Fails(string versionJson)
+    {
+        var contract = "{ \"schemaVersion\": " + versionJson
+            + ", \"layers\": [{ \"name\": \"Domain\", \"namespaceRoots\": [\"Sample.Domain\"] }] }";
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'schemaVersion' must be an integer when present", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData("{ \"schemaVersion\": 2, \"schemaVersion\": 1, \"layers\": [] }")]
+    [InlineData("{ \"schemaVersion\": 1, \"schemaVersion\": 2, \"layers\": [] }")]
+    public void Loader_DuplicateSchemaVersion_FailsRegardlessOfOrder(string contract)
+    {
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("property 'schemaVersion' must not appear more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public async Task DuplicateSchemaVersion_ReportsContractInvalid()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 2,
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ]
+            }
+            """;
+
+        var test = new ArchitectureAnalyzerTest(contract)
+        {
+            TestCode = CleanSource,
+        };
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "property 'schemaVersion' must not appear more than once"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public void Loader_DuplicateNamespaceRoot_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Shared" ] },
+                { "name": "Application", "namespaceRoots": [ "Sample.Shared" ] }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("namespace root 'Sample.Shared' is declared more than once in layers", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_DuplicateForbiddenDependency_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Application", "namespaceRoots": [ "Sample.Application" ] }
+              ],
+              "forbiddenDependencies": [
+                { "from": "Domain", "to": "Application" },
+                { "from": "Domain", "to": "Application", "reason": "duplicate" }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("forbidden dependency 'Domain' -> 'Application' is declared more than once", result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_ConflictingInteropAllowedLayers_Fails()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 1,
+              "layers": [
+                { "name": "NativeA", "namespaceRoots": [ "Sample.NativeA" ] },
+                { "name": "NativeB", "namespaceRoots": [ "Sample.NativeB" ] }
+              ],
+              "interopBoundaryRules": [
+                {
+                  "attribute": "System.Runtime.InteropServices.DllImportAttribute",
+                  "allowedLayer": "NativeA"
+                },
+                {
+                  "attribute": "System.Runtime.InteropServices.DllImportAttribute",
+                  "allowedLayer": "NativeB"
+                }
+              ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(
+            "interop attribute 'System.Runtime.InteropServices.DllImportAttribute' has conflicting allowed layers "
+                + "'NativeA' and 'NativeB'",
+            result.ErrorReason);
     }
 
     [Fact]

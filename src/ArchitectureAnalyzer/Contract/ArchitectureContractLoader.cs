@@ -57,6 +57,9 @@ public static class ArchitectureContractLoader
     /// <summary>The file name (case-insensitive) that identifies a contract in AdditionalFiles.</summary>
     public const string ContractFileName = "architecture.contract.json";
 
+    /// <summary>The newest Architecture Contract schema understood by this analyzer.</summary>
+    public const int CurrentSchemaVersion = 1;
+
     /// <summary>
     /// Parses and validates a contract document.
     /// </summary>
@@ -102,8 +105,15 @@ public static class ArchitectureContractLoader
                 "the contract root must be a JSON object");
         }
 
+        var schemaError = ValidateSchemaVersion(root);
+        if (schemaError is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(schemaError);
+        }
+
         var layersBuilder = ImmutableArray.CreateBuilder<LayerDefinition>();
         var declaredLayers = new HashSet<string>(StringComparer.Ordinal);
+        var declaredNamespaceRoots = new HashSet<string>(StringComparer.Ordinal);
 
         if (!TryGetArray(root, "layers", out var layersElement, out var layersError))
         {
@@ -150,7 +160,14 @@ public static class ArchitectureContractLoader
                             $"each entry of 'namespaceRoots' of layer '{name}' must be a non-empty string");
                     }
 
-                    roots.Add(rootElement.GetString()!);
+                    var namespaceRoot = rootElement.GetString()!;
+                    if (!declaredNamespaceRoots.Add(namespaceRoot))
+                    {
+                        return ArchitectureContractLoadResult.Failure(
+                            $"namespace root '{namespaceRoot}' is declared more than once in layers");
+                    }
+
+                    roots.Add(namespaceRoot);
                 }
             }
 
@@ -158,6 +175,7 @@ public static class ArchitectureContractLoader
         }
 
         var dependenciesBuilder = ImmutableArray.CreateBuilder<ForbiddenDependencyRule>();
+        var dependencyKeys = new HashSet<(string From, string To)>();
         if (!TryGetArray(root, "forbiddenDependencies", out var dependenciesElement, out var dependenciesError))
         {
             return ArchitectureContractLoadResult.Failure(dependenciesError!);
@@ -191,6 +209,12 @@ public static class ArchitectureContractLoader
                 if (!declaredLayers.Contains(to!))
                 {
                     return ArchitectureContractLoadResult.Failure(UndeclaredLayer(to!, "forbiddenDependencies"));
+                }
+
+                if (!dependencyKeys.Add((from!, to!)))
+                {
+                    return ArchitectureContractLoadResult.Failure(
+                        $"forbidden dependency '{from}' -> '{to}' is declared more than once");
                 }
 
                 dependenciesBuilder.Add(new ForbiddenDependencyRule(from!, to!, ReadReason(entry)));
@@ -266,6 +290,7 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
         }
 
         var interopBuilder = ImmutableArray.CreateBuilder<InteropBoundaryRule>();
+        var interopLayersByAttribute = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!TryGetArray(root, "interopBoundaryRules", out var interopElement, out var interopError))
         {
             return ArchitectureContractLoadResult.Failure(interopError!);
@@ -296,6 +321,20 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
                     return ArchitectureContractLoadResult.Failure(UndeclaredLayer(allowedLayer!, "interopBoundaryRules"));
                 }
 
+                if (interopLayersByAttribute.TryGetValue(attribute!, out var previousAllowedLayer))
+                {
+                    if (string.Equals(previousAllowedLayer, allowedLayer, StringComparison.Ordinal))
+                    {
+                        return ArchitectureContractLoadResult.Failure(
+                            $"interop attribute '{attribute}' is declared more than once in interopBoundaryRules");
+                    }
+
+                    return ArchitectureContractLoadResult.Failure(
+                        $"interop attribute '{attribute}' has conflicting allowed layers "
+                        + $"'{previousAllowedLayer}' and '{allowedLayer}'");
+                }
+
+                interopLayersByAttribute.Add(attribute!, allowedLayer!);
                 interopBuilder.Add(new InteropBoundaryRule(attribute!, allowedLayer!, ReadReason(entry)));
             }
         }
@@ -413,6 +452,47 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
         }
 
         return (new LayerDeclaration(required, markers, validateNamespaceConsistency, markerNamespace), null);
+    }
+
+    private static string? ValidateSchemaVersion(JsonElement root)
+    {
+        var versionCount = 0;
+        var versionElement = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "schemaVersion", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            versionCount++;
+            if (versionCount > 1)
+            {
+                return "property 'schemaVersion' must not appear more than once";
+            }
+
+            versionElement = property.Value;
+        }
+
+        if (versionCount == 0)
+        {
+            // Versionless contracts predate explicit schema versioning. During the 0.x line they
+            // are intentionally interpreted as schema v1 so existing consumers keep working.
+            return null;
+        }
+
+        if (versionElement.ValueKind != JsonValueKind.Number
+            || !versionElement.TryGetInt32(out var version))
+        {
+            return "property 'schemaVersion' must be an integer when present";
+        }
+
+        if (version != CurrentSchemaVersion)
+        {
+            return $"unsupported schemaVersion '{version}'; supported schemaVersion is {CurrentSchemaVersion}";
+        }
+
+        return null;
     }
 
     private static string UndeclaredLayer(string layerName, string section)

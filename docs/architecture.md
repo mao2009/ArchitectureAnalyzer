@@ -43,14 +43,19 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
 
 ## 2. Contract schema
 
-The contract is a single JSON object. `layers` is required; the other four sections are optional
-and each one activates the rules that depend on it — a contract without `layerDeclaration` keeps
-the original namespace-only behavior, and a contract without `interopBoundaryRules` registers no
-interop analysis at all. Unknown properties anywhere in the document are **ignored**, so a contract
-written for a newer version of this analyzer stays loadable by an older one.
+The contract is a single JSON object. `schemaVersion` is optional for backward compatibility
+with pre-versioning contracts and is interpreted as **1** when omitted. New or updated contracts
+should declare `"schemaVersion": 1`. `layers` is required; the other rule sections are optional
+and activate only the analyses that depend on them.
+
+Unknown properties inside a **supported schema version** are ignored, which permits additive
+metadata without changing rule semantics. A schema change that can affect interpretation must
+increment `schemaVersion`; an analyzer that does not understand that version rejects the whole
+contract with AARC001 instead of silently guessing.
 
 | Section | Required | Activates |
 |---|---|---|
+| `schemaVersion` | no (v0.x compatibility) | schema compatibility check; omitted means v1 |
 | `layers` | yes | namespace → layer classification (everything else depends on it) |
 | `forbiddenDependencies` | no | AARC002 |
 | `forbiddenApis` | no | AARC003 |
@@ -59,6 +64,10 @@ written for a newer version of this analyzer stays loadable by an older one.
 
 ```jsonc
 {
+  // RECOMMENDED. Versionless legacy contracts are interpreted as v1 during the 0.x line.
+  // Unsupported versions fail with AARC001 rather than being interpreted approximately.
+  "schemaVersion": 1,
+
   // REQUIRED. The layers this project declares. Names are matched case-sensitively
   // everywhere else in the document, and must be unique.
   "layers": [
@@ -154,6 +163,30 @@ The containing type's layer for `interopBoundaryRules` is resolved with the same
 attribute-aware rule as AARC002/AARC003: a marker attribute on the type or any enclosing type
 wins over the namespace, and unclassified code is never the allowed layer.
 
+### Schema compatibility policy
+
+Schema **v1** is the first explicit public Architecture Contract schema.
+
+- A contract with `"schemaVersion": 1` is parsed as v1.
+- A versionless contract is also parsed as v1 during the 0.x release line so existing consumers do
+  not break merely because versioning was introduced.
+- If `schemaVersion` is present it must appear exactly once and be an integer. Duplicate
+  `schemaVersion` properties are ambiguous and rejected before either value is interpreted;
+  `null`, strings and fractional numbers are invalid rather than treated as versionless.
+- An unsupported version is rejected with AARC001. In particular, an older analyzer must never
+  silently interpret a future schema version using old semantics.
+- Additive metadata may be introduced as unknown properties without changing v1 semantics;
+  unknown properties are ignored. Any new property whose interpretation changes architecture
+  enforcement must ship under a new schema version.
+- Exact duplicate namespace roots and duplicate forbidden dependency edges are invalid. One
+  namespace root therefore has exactly one owner and one forbidden edge has exactly one
+  declaration.
+- An interop attribute may appear only once. Repeating it for a different allowed layer is
+  rejected as a contradictory rule instead of relying on declaration order.
+
+The compatibility guarantee is intentionally asymmetric: current analyzers keep accepting
+versionless/v1 contracts, while future-version contracts fail closed on older analyzers.
+
 ### Validation rules
 
 A contract is rejected with AARC001 when any of the following hold. The failure reason is
@@ -165,11 +198,17 @@ included verbatim in the diagnostic message.
 | The file is empty or whitespace | `the file is empty` |
 | The text is not valid JSON | the raw `System.Text.Json` parse message |
 | The root is not a JSON object | `the contract root must be a JSON object` |
+| `schemaVersion` appears more than once | `property 'schemaVersion' must not appear more than once` |
+| `schemaVersion` is present but is not an integer | `property 'schemaVersion' must be an integer when present` |
+| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersion is 1` |
 | `layers` is missing | `required property 'layers' is missing` |
 | Two layers share a name | `layer 'X' is declared more than once in layers` |
+| A namespace root is declared more than once | `namespace root 'X' is declared more than once in layers` |
+| A forbidden dependency edge is declared more than once | `forbidden dependency 'A' -> 'B' is declared more than once` |
 | `forbiddenDependencies[].from`/`.to` names an undeclared layer | `layer 'X' referenced in forbiddenDependencies is not declared in layers` |
 | `forbiddenApis[].layer` names an undeclared layer | `layer 'X' referenced in forbiddenApis is not declared in layers` |
 | `interopBoundaryRules[].allowedLayer` names an undeclared layer | `layer 'X' referenced in interopBoundaryRules is not declared in layers` |
+| The same interop attribute is assigned different allowed layers | `interop attribute 'X' has conflicting allowed layers 'A' and 'B'` |
 | `layerDeclaration` is not a JSON object | `property 'layerDeclaration' must be a JSON object` |
 | `layerDeclaration.markerAttributes[].layer` names an undeclared layer | `marker attribute 'X' maps to undeclared layer 'Y'` |
 | The same `attributeFqn` appears twice in `markerAttributes` | `duplicate marker attribute 'X' in layerDeclaration.markerAttributes` |
