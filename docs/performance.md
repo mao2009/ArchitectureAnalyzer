@@ -90,31 +90,34 @@ The benchmark runner accepts `--ci`. In that mode these medians are hard upper b
 
 | Metric | CI budget |
 |---|---:|
-| 1,000 contract parses | 1,500 ms |
-| dependency analysis, 300 files | 5,000 ms |
-| forbidden-API analysis, 300 files | 5,000 ms |
-| full schema-v5 analyzer, 300 files | 7,000 ms |
+| 1,000 contract parses | 500 ms |
+| dependency analysis, 300 files | 2,500 ms |
+| forbidden-API analysis, 300 files | 3,000 ms |
+| full schema-v5 analyzer, 300 files | 3,000 ms |
 
 These limits are intentionally much wider than the expected baseline. Their purpose is to catch a
 major regression such as repeated contract parsing, a new full-compilation walk, accidental
 quadratic behavior or a drastic callback explosion without making CI flaky because a shared runner
 is temporarily slower.
 
-The first green GitHub Actions run for this benchmark is recorded below before the feature is
-merged. Future changes should compare against the same workload and preserve substantial headroom
-under the CI budget.
+The first green GitHub Actions run for this benchmark is recorded below. The budgets were then
+tightened to retain roughly five-times-or-more headroom over that run: wide enough for shared-runner
+variance, but narrow enough to catch accidental repeated scans or nonlinear behavior.
 
 ## Baseline
 
-Baseline values are filled from the first green GitHub-hosted Ubuntu run of the benchmark so the
-numbers correspond to the environment that enforces the guard.
+Baseline source: GitHub Actions CI run **36829119921**, Ubuntu hosted runner, .NET SDK 10.0.302,
+2026-10-01. These are medians from three measured iterations after one warm-up.
 
-| Metric | Baseline median |
-|---|---:|
-| 1,000 contract parses | pending first CI run |
-| dependency analysis, 300 files | pending first CI run |
-| forbidden-API analysis, 300 files | pending first CI run |
-| full schema-v5 analyzer, 300 files | pending first CI run |
+| Metric | Baseline median | Diagnostics per analyzer run |
+|---|---:|---:|
+| 1,000 contract parses | 59.4 ms | n/a |
+| dependency analysis, 300 files | 471.6 ms | 300 |
+| forbidden-API analysis, 300 files | 534.6 ms | 300 |
+| full schema-v5 analyzer, 300 files | 558.6 ms | 600 |
+
+The absolute values are not promises for other machines. They are a reproducible CI reference for
+this exact synthetic workload and a calibration point for the broad regression budgets above.
 
 ## Performance-sensitive implementation constraints
 
