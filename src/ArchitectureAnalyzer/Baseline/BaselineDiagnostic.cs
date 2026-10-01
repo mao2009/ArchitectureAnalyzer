@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ArchitectureAnalyzer.Diagnostics;
 using Microsoft.CodeAnalysis;
 
 namespace ArchitectureAnalyzer.Baseline;
@@ -22,5 +23,23 @@ internal static class BaselineDiagnostic
             .Add(ArchitectureBaseline.BaselineKeyProperty, key);
 
         return Diagnostic.Create(descriptor, location, properties, messageArgs);
+    }
+
+    internal static Diagnostic? CreateCapture(
+        ArchitectureBaseline baseline,
+        DiagnosticDescriptor descriptor,
+        Location location,
+        string key)
+    {
+        if (!baseline.CaptureMode)
+        {
+            return null;
+        }
+
+        return Diagnostic.Create(
+            ArchitectureDiagnostics.ArchitectureBaselineCapture,
+            location,
+            descriptor.Id,
+            key);
     }
 }
