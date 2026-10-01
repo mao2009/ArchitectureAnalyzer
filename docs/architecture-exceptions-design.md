@@ -1,6 +1,6 @@
 # Architecture exception and suppression policy
 
-Status: accepted design target for issue #24; implementation is tracked by #8.
+Status: implemented by #8 as Architecture Contract schema v5.
 
 ## Goal
 
@@ -237,9 +237,9 @@ diagnostic.
 Unit tests should provide the equivalent proof for AARC003: one exact source/API/member exception is
 silent while another member or source type still reports.
 
-## Implementation requirements for #8
+## Implementation shape
 
-The implementation PR should:
+The implementation follows this policy:
 
 - advance `CurrentSchemaVersion` to 5 while preserving versionless/v1/v2/v3/v4 behavior;
 - add immutable typed exception models for AARC002 and AARC003;
