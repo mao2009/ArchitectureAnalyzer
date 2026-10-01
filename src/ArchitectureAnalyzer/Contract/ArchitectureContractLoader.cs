@@ -58,7 +58,10 @@ public static class ArchitectureContractLoader
     public const string ContractFileName = "architecture.contract.json";
 
     /// <summary>The newest Architecture Contract schema understood by this analyzer.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
+
+    /// <summary>The oldest explicit schema version this analyzer still accepts.</summary>
+    public const int MinimumSupportedSchemaVersion = 1;
 
     /// <summary>
     /// Parses and validates a contract document.
@@ -105,10 +108,16 @@ public static class ArchitectureContractLoader
                 "the contract root must be a JSON object");
         }
 
-        var schemaError = ValidateSchemaVersion(root);
-        if (schemaError is not null)
+        var schemaVersionResult = ReadSchemaVersion(root);
+        if (schemaVersionResult.Error is not null)
         {
-            return ArchitectureContractLoadResult.Failure(schemaError);
+            return ArchitectureContractLoadResult.Failure(schemaVersionResult.Error);
+        }
+
+        var unclassifiedCodeResult = ReadUnclassifiedCode(root, schemaVersionResult.Version);
+        if (unclassifiedCodeResult.Error is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(unclassifiedCodeResult.Error);
         }
 
         var layersBuilder = ImmutableArray.CreateBuilder<LayerDefinition>();
@@ -344,7 +353,8 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             dependenciesBuilder.ToImmutable(),
             apisBuilder.ToImmutable(),
             layerDeclarationResult.Declaration,
-            interopBuilder.ToImmutable()));
+            interopBuilder.ToImmutable(),
+            unclassifiedCodeResult.Policy));
     }
 
     private static (LayerDeclaration? Declaration, string? Error) ReadLayerDeclaration(
@@ -454,7 +464,7 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
         return (new LayerDeclaration(required, markers, validateNamespaceConsistency, markerNamespace), null);
     }
 
-    private static string? ValidateSchemaVersion(JsonElement root)
+    private static (int Version, string? Error) ReadSchemaVersion(JsonElement root)
     {
         var versionCount = 0;
         var versionElement = default(JsonElement);
@@ -468,7 +478,7 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             versionCount++;
             if (versionCount > 1)
             {
-                return "property 'schemaVersion' must not appear more than once";
+                return (0, "property 'schemaVersion' must not appear more than once");
             }
 
             versionElement = property.Value;
@@ -478,21 +488,72 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
         {
             // Versionless contracts predate explicit schema versioning. During the 0.x line they
             // are intentionally interpreted as schema v1 so existing consumers keep working.
-            return null;
+            return (MinimumSupportedSchemaVersion, null);
         }
 
         if (versionElement.ValueKind != JsonValueKind.Number
             || !versionElement.TryGetInt32(out var version))
         {
-            return "property 'schemaVersion' must be an integer when present";
+            return (0, "property 'schemaVersion' must be an integer when present");
         }
 
-        if (version != CurrentSchemaVersion)
+        if (version < MinimumSupportedSchemaVersion || version > CurrentSchemaVersion)
         {
-            return $"unsupported schemaVersion '{version}'; supported schemaVersion is {CurrentSchemaVersion}";
+            return (0,
+                $"unsupported schemaVersion '{version}'; supported schemaVersions are "
+                + $"{MinimumSupportedSchemaVersion} through {CurrentSchemaVersion}");
         }
 
-        return null;
+        return (version, null);
+    }
+
+    private static (UnclassifiedCodePolicy Policy, string? Error) ReadUnclassifiedCode(
+        JsonElement root,
+        int schemaVersion)
+    {
+        var count = 0;
+        var value = default(JsonElement);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "unclassifiedCode", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            count++;
+            if (count > 1)
+            {
+                return (UnclassifiedCodePolicy.Ignore,
+                    "property 'unclassifiedCode' must not appear more than once");
+            }
+
+            value = property.Value;
+        }
+
+        if (count == 0)
+        {
+            return (UnclassifiedCodePolicy.Ignore, null);
+        }
+
+        if (schemaVersion < 2)
+        {
+            return (UnclassifiedCodePolicy.Ignore,
+                "property 'unclassifiedCode' requires schemaVersion 2");
+        }
+
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            return (UnclassifiedCodePolicy.Ignore,
+                "property 'unclassifiedCode' must be 'ignore' or 'error'");
+        }
+
+        return value.GetString() switch
+        {
+            "ignore" => (UnclassifiedCodePolicy.Ignore, null),
+            "error" => (UnclassifiedCodePolicy.Error, null),
+            _ => (UnclassifiedCodePolicy.Ignore,
+                "property 'unclassifiedCode' must be 'ignore' or 'error'"),
+        };
     }
 
     private static string UndeclaredLayer(string layerName, string section)
