@@ -1,0 +1,10 @@
+// Injected by verify-multi-project.sh only.
+namespace MultiProject.Producer;
+
+public sealed class ProducerViolation
+{
+    public void Write()
+    {
+        System.Console.WriteLine("producer violation");
+    }
+}
