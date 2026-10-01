@@ -201,6 +201,18 @@ public sealed class InteropBoundaryRule
 }
 
 /// <summary>
+/// Policy for source types that cannot be assigned to any declared architecture layer.
+/// </summary>
+public enum UnclassifiedCodePolicy
+{
+    /// <summary>Preserve the legacy behavior: unclassified types do not produce a coverage diagnostic.</summary>
+    Ignore,
+
+    /// <summary>Report AARC010 for applicable source types that resolve to no architecture layer.</summary>
+    Error,
+}
+
+/// <summary>
 /// An immutable, validated Architecture Contract: the single source of truth the analyzer
 /// interprets. The analyzer itself holds no architecture knowledge of its own.
 /// </summary>
@@ -217,12 +229,14 @@ public sealed class ArchitectureContract
     /// <param name="forbiddenApis">Forbidden API rules.</param>
     /// <param name="layerDeclaration">Optional declaration-rules section; <see langword="null"/> keeps namespace-only behaviour.</param>
     /// <param name="interopBoundaryRules">Interop-boundary rules; empty when the section is absent.</param>
+    /// <param name="unclassifiedCode">Coverage policy for types that resolve to no declared layer.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
         ImmutableArray<ForbiddenApiRule> forbiddenApis,
         LayerDeclaration? layerDeclaration = null,
-        ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null)
+        ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null,
+        UnclassifiedCodePolicy unclassifiedCode = UnclassifiedCodePolicy.Ignore)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
@@ -230,6 +244,7 @@ public sealed class ArchitectureContract
             : forbiddenDependencies;
         ForbiddenApis = forbiddenApis.IsDefault ? ImmutableArray<ForbiddenApiRule>.Empty : forbiddenApis;
         LayerDeclaration = layerDeclaration;
+        UnclassifiedCode = unclassifiedCode;
 
         _markerLayerByFqn = layerDeclaration?.MarkerAttributes.ToImmutableDictionary(
             mapping => mapping.AttributeFqn,
@@ -286,6 +301,9 @@ public sealed class ArchitectureContract
     {
         return _markerLayerByFqn.TryGetValue(attributeFqn, out var layer) ? layer : null;
     }
+
+    /// <summary>Coverage policy for source types that resolve to no declared layer.</summary>
+    public UnclassifiedCodePolicy UnclassifiedCode { get; }
 
     /// <summary>Declared interop-boundary rules, in contract order.</summary>
     public ImmutableArray<InteropBoundaryRule> InteropBoundaryRules { get; }
