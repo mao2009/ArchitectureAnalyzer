@@ -57,7 +57,7 @@ baked into the analyzer.
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
@@ -69,6 +69,9 @@ baked into the analyzer.
   "allowedDependencies": [
     { "from": "Application", "to": [ "Domain" ], "reason": "Application may depend only on Domain." }
   ],
+  "dependencyGraph": {
+    "requireAcyclic": true
+  },
   "forbiddenApis": [
     { "layer": "Domain", "type": "System.Console", "reason": "Console I/O must be abstracted behind an Infrastructure adapter." }
   ]
@@ -77,12 +80,14 @@ baked into the analyzer.
 
 Layers are the minimum. Forbidden edges/APIs, positive dependency allowlists
 (`allowedDependencies`), attribute-based layer declaration (`layerDeclaration`), interop
-boundaries (`interopBoundaryRules`) and strict coverage are optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+boundaries (`interopBoundaryRules`), strict coverage and declared-graph DAG enforcement are
+optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
 
-New contracts should declare the current `"schemaVersion": 3`. Schema v2 added
-`unclassifiedCode`; schema v3 adds `allowedDependencies` so selected source layers can use a
-positive dependency allowlist. Existing versionless/v1/v2 contracts remain valid; unsupported
-future versions fail with AARC001 instead of being guessed.
+New contracts should declare the current `"schemaVersion": 4`. Schema v2 added
+`unclassifiedCode`; schema v3 added `allowedDependencies`; schema v4 adds
+`dependencyGraph.requireAcyclic` for deterministic DAG validation. Existing
+versionless/v1/v2/v3 contracts remain valid; unsupported future versions fail with AARC001
+instead of being guessed.
 
 ### 2. Wire it into the project
 
@@ -111,10 +116,11 @@ Or from source, if you vendor or submodule this repository:
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
 The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
-`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3, AARC010 and
-`allowedDependencies` were added after that tag and are currently available from `main` (or a
-source reference); they require the next tagged NuGet release before PackageReference consumers
-can use them. Package 0.1.0 consumers should keep using schema v1 and omit v2/v3-only properties.
+`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3/v4, AARC010/AARC011,
+`allowedDependencies` and `dependencyGraph` were added after that tag and are currently
+available from `main` (or a source reference); they require the next tagged NuGet release before
+PackageReference consumers can use them. Package 0.1.0 consumers should keep using schema v1 and
+omit v2+ properties.
 
 ### 3. Build
 
@@ -138,6 +144,8 @@ the analyzer is opt-in and does nothing without a contract.
    ratchet against future coverage gaps.
 6. Move selected layers to schema-v3 `allowedDependencies` when you want new dependency
    directions to be denied unless explicitly listed.
+7. Move to schema v4 and set `dependencyGraph.requireAcyclic=true` when the explicitly permitted
+   layer graph must remain a DAG.
 
 `namespaceRoots` are prefixes, so `MyApp.Domain` covers `MyApp.Domain.Orders.Pricing` too.
 Unclassified namespaces stay permitted for v1/versionless contracts and v2 `"ignore"`; v2
@@ -170,10 +178,12 @@ turns the gate off exactly where it matters most.
 | [AARC008](docs/diagnostics.md#aarc008) | Invalid architecture analyzer configuration value | Warning |
 | [AARC009](docs/diagnostics.md#aarc009) | Unknown architecture analyzer configuration property | Warning |
 | [AARC010](docs/diagnostics.md#aarc010) | Type is not assigned to an architecture layer | Error |
+| [AARC011](docs/diagnostics.md#aarc011) | Declared architecture dependency graph contains a cycle | Error |
 
 AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, AARC007
-only when it declares `interopBoundaryRules`, and AARC010 only for schema-v2 contracts with
-`unclassifiedCode=error`. Existing v1/versionless contracts keep their previous behavior. Full message formats, triggering examples and per-diagnostic
+only when it declares `interopBoundaryRules`, AARC010 only when `unclassifiedCode=error`, and
+AARC011 only when schema-v4 `dependencyGraph.requireAcyclic=true`. Existing older-schema
+contracts keep their previous behavior. Full message formats, triggering examples and per-diagnostic
 suppression options are in [`docs/diagnostics.md`](docs/diagnostics.md).
 
 ## Configuration
@@ -196,14 +206,17 @@ the contract controls *what the rules are*.
 
 **Does** — given a correct contract and severities left at `Error`:
 
-- A type in a declared layer that references a type across a forbidden edge fails the build.
+- A type in a declared layer that crosses an explicit deny edge or a positive allowlist boundary
+  fails the build.
 - A type in a declared layer that uses an API matched by a `forbiddenApis` rule fails the build.
 - With a `layerDeclaration` section, a class that declares no layer, or declares two, fails the
   build; drift between a declared layer and its namespace is reported as a warning.
 - With `interopBoundaryRules`, a method carrying a configured attribute outside its allowed layer
   fails the build.
-- With schema-v2 `unclassifiedCode=error`, an applicable source type that resolves through neither
+- With schema-v2+ `unclassifiedCode=error`, an applicable source type that resolves through neither
   a namespace root nor a configured marker fails the build with AARC010.
+- With schema-v4 `dependencyGraph.requireAcyclic=true`, cycles in the explicit
+  `allowedDependencies` policy graph fail the build with deterministic AARC011 paths.
 - A referenced contract file that is missing or malformed fails the build, rather than silently
   disabling enforcement.
 - The check runs everywhere `dotnet build` runs, with nothing extra to install or remember.
@@ -232,9 +245,9 @@ bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ```
 
 `verify-gate.sh` builds a sample consumer project, proves both an explicit forbidden edge and a
-schema-v3 positive-allowlist violation fail with AARC002, then proves a coverage gap fails with
-AARC010 under `error` and passes for the same source under `ignore`, before restoring a clean
-strict build. The unit tests use an in-memory compilation; this script is the evidence that
+schema-v3 positive-allowlist violation fail with AARC002, proves a schema-v4 cyclic policy fails
+with AARC011, then proves a coverage gap fails with AARC010 under `error` and passes for the same
+source under `ignore`, before restoring a clean strict build. The unit tests use an in-memory compilation; this script is the evidence that
 enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
@@ -251,7 +264,7 @@ Documentation map:
 |---|---|
 | [`docs/design.md`](docs/design.md) | the *why* — rationale and non-goals |
 | [`docs/architecture.md`](docs/architecture.md) | the *how* — pipeline and the full annotated contract schema |
-| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC010 |
+| [`docs/diagnostics.md`](docs/diagnostics.md) | per-rule reference for AARC001–AARC011 |
 | [`docs/configuration.md`](docs/configuration.md) | `.editorconfig` operational options: list, scope, precedence, defaults |
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
@@ -262,11 +275,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## Status
 
-Ten diagnostics (AARC001–AARC010), namespace **and** attribute-based layer classification,
-schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists,
-attribute-driven interop boundaries, and `.editorconfig` operational options. The current
-published package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009); schema v2/v3,
-AARC010 and `allowedDependencies` are on `main` awaiting the next tag.
+Eleven diagnostics (AARC001–AARC011), namespace **and** attribute-based layer classification,
+schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
+declared-graph DAG enforcement, attribute-driven interop boundaries, and `.editorconfig`
+operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
+(AARC001–AARC009); schema v2/v3/v4, AARC010/AARC011, `allowedDependencies` and
+`dependencyGraph` are on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
@@ -274,6 +288,6 @@ there is still no DSL, and multi-file contracts remain unimplemented on purpose
 [PSXRecompStudio](https://github.com/mao2009/PSXRecompStudio), whose hardcoded in-house analyzer
 motivated several of these generic features, is the first consumer; its capability baseline is
 tracked in [`docs/compatibility/psxrecomp-analyzer-baseline.md`](docs/compatibility/psxrecomp-analyzer-baseline.md),
-with the cross-analyzer parity suite (`docs/compatibility/compatibility-suite.md`) in progress
-under [issue #33](https://github.com/mao2009/ArchitectureAnalyzer/issues/33). Nothing about that
-consumer is compiled into the analyzer.
+with the completed cross-analyzer parity suite in
+[`docs/compatibility/compatibility-suite.md`](docs/compatibility/compatibility-suite.md).
+Nothing about that consumer is compiled into the analyzer.
