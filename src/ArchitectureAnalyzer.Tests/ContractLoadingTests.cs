@@ -814,7 +814,7 @@ public sealed class ContractLoadingTests
     }
 
     [Theory]
-    [InlineData(""true"")]
+    [InlineData("\"true\"")]
     [InlineData("1")]
     [InlineData("null")]
     public void Loader_DependencyGraphRequireAcyclic_MustBeBoolean(string valueJson)
