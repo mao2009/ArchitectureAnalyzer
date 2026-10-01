@@ -144,6 +144,8 @@ public static class ConfigReader
             options, RuleEnabledKey("AARC002"), defaultValue: true, invalidFallback: true, diagnostics);
         var aarc003Enabled = ReadBoolOption(
             options, RuleEnabledKey("AARC003"), defaultValue: true, invalidFallback: true, diagnostics);
+        var aarc010Enabled = ReadBoolOption(
+            options, RuleEnabledKey("AARC010"), defaultValue: true, invalidFallback: true, diagnostics);
 
         return OperationalConfig.Create(
             enabled: true,
@@ -155,6 +157,7 @@ public static class ConfigReader
             {
                 ["AARC002"] = aarc002Enabled,
                 ["AARC003"] = aarc003Enabled,
+                ["AARC010"] = aarc010Enabled,
             });
     }
 
@@ -243,6 +246,7 @@ public static class ConfigReader
         SkipGeneratedCodeAarc003Key,
         RuleTogglePrefix + "AARC002.enabled",
         RuleTogglePrefix + "AARC003.enabled",
+        RuleTogglePrefix + "AARC010.enabled",
     };
 
     /// <summary>
