@@ -245,6 +245,54 @@ public sealed class ArchitectureExceptionTests
     }
 
     [Fact]
+    public async Task Aarc003_ConstructorMemberException_UsesDotCtor()
+    {
+        const string contract = """
+            {
+              "schemaVersion": 5,
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] }
+              ],
+              "forbiddenApis": [
+                {
+                  "layer": "Domain",
+                  "type": "System.Random",
+                  "wholeType": true,
+                  "reason": "Random is forbidden."
+                }
+              ],
+              "exceptions": [
+                {
+                  "diagnosticId": "AARC003",
+                  "sourceType": "Sample.Domain.LegacyRandom",
+                  "apiType": "System.Random",
+                  "member": ".ctor",
+                  "justification": "Legacy seeded-random bridge."
+                }
+              ]
+            }
+            """;
+
+        var test = new ArchitectureAnalyzerTest(contract)
+        {
+            TestCode = """
+                namespace Sample.Domain
+                {
+                    public class LegacyRandom
+                    {
+                        public object Create()
+                        {
+                            return new System.Random();
+                        }
+                    }
+                }
+                """,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
     public async Task StandardPragmaSuppression_RemainsAvailable()
     {
         var test = new ArchitectureAnalyzerTest(DependencyExceptionContract)
