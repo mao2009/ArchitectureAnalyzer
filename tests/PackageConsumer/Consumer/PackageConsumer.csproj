@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately not part of ArchitectureAnalyzer.sln. The E2E script restores this project from
+    a temporary local NuGet feed and then injects a source violation that must fail the build.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PackageConsumer</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <ArchitectureAnalyzerPackageVersion Condition="'$(ArchitectureAnalyzerPackageVersion)' == ''">0.0.0-e2e</ArchitectureAnalyzerPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="loach.ArchitectureAnalyzer"
+                      Version="$(ArchitectureAnalyzerPackageVersion)"
+                      PrivateAssets="all" />
+    <AdditionalFiles Include="architecture.contract.json" />
+  </ItemGroup>
+
+</Project>
