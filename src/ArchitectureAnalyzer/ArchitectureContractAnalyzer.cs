@@ -257,14 +257,22 @@ context.RegisterOperationBlockAction(blockContext =>
 
     private static void ReportDeclaredDependencyCycles(
         CompilationAnalysisContext context,
-        ImmutableArray<ImmutableArray<string>> cycles)
+        ImmutableArray<ImmutableArray<string>> cycles,
+        ArchitectureBaseline baseline)
     {
         foreach (var cycle in cycles)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var cyclePath = string.Join(" -> ", cycle);
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.DeclaredDependencyCycle,
                 Location.None,
-                string.Join(" -> ", cycle)));
+                cyclePath,
+                cyclePath);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
         }
     }
 
@@ -370,14 +378,16 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
             sourceLayer,
             targetDisplay,
             targetLayer,
-            reason);
+            reason,
+            sourceExceptionName + " -> " + targetExceptionName);
         reported.GetOrAdd(sourceDisplay + "->" + targetDisplay, static _ => new ConcurrentQueue<DependencyViolation>())
             .Enqueue(violation);
     }
 
     private static void ReportDependencyDiagnostics(
         CompilationAnalysisContext context,
-        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported)
+        ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported,
+        ArchitectureBaseline baseline)
     {
         foreach (var violations in reported.Values)
         {
@@ -398,14 +408,20 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
                 continue;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.ForbiddenLayerDependency,
                 earliest.Location,
+                earliest.BaselineKey,
                 earliest.SourceDisplay,
                 earliest.SourceLayer,
                 earliest.TargetDisplay,
                 earliest.TargetLayer,
-                earliest.Reason));
+                earliest.Reason);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
         }
 
         reported.Clear();
@@ -431,6 +447,7 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
     private static void AnalyzeForbiddenApiUsage(
         OperationBlockAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         OperationalConfig config)
     {
         if (!config.Enabled || !config.IsRuleEnabled("AARC003"))
@@ -459,6 +476,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
         }
 
         var sourceExceptionName = sourceType.OriginalDefinition.ToDisplayString();
+        var sourceMemberName = context.OwningSymbol.OriginalDefinition.ToDisplayString();
         var rules = contract.GetApiRules(sourceLayer);
         if (rules.IsEmpty)
         {
@@ -523,12 +541,19 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
                         continue;
                     }
 
-                    context.ReportDiagnostic(Diagnostic.Create(
+                    var baselineKey = sourceMemberName + " -> " + ownerFullName + "." + matchName;
+                    var diagnostic = BaselineDiagnostic.Create(
+                        baseline,
                         ArchitectureDiagnostics.ForbiddenApiUsage,
                         location,
+                        baselineKey,
                         FormatApi(owner, member),
                         sourceLayer,
-                        rules[ruleIndex].Reason));
+                        rules[ruleIndex].Reason);
+                    if (diagnostic is not null)
+                    {
+                        context.ReportDiagnostic(diagnostic);
+                    }
                 }
             }
         }
@@ -537,6 +562,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
 private static void AnalyzeLayerDeclaration(
         SymbolAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
         ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
     {
@@ -574,6 +600,7 @@ private static void AnalyzeLayerDeclaration(
         }
 
         var ownLayers = GetAppliedMarkerLayers(type, contract);
+        var baselineKey = type.OriginalDefinition.ToDisplayString();
 
         // AARC004 fires only when the contract requires declarations and the operational
         // require_layer_declaration toggle has not relaxed enforcement for this tree.
@@ -582,19 +609,32 @@ private static void AnalyzeLayerDeclaration(
             && ownLayers.Count == 0
             && !IsNestedInDeclaredLayer(type, contract))
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.MissingLayerDeclaration,
                 primary,
-                type.ToDisplayString()));
+                baselineKey,
+                type.ToDisplayString());
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
         }
 
         if (ownLayers.Count > 1)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.MultipleLayerDeclarations,
                 primary,
+                baselineKey,
                 type.ToDisplayString(),
-                string.Join(", ", ownLayers)));
+                string.Join(", ", ownLayers));
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
+
             return;
         }
 
@@ -608,13 +648,19 @@ private static void AnalyzeLayerDeclaration(
             if (namespaceLayer is not null
                 && !string.Equals(declaredLayer, namespaceLayer, StringComparison.Ordinal))
             {
-                context.ReportDiagnostic(Diagnostic.Create(
+                var diagnostic = BaselineDiagnostic.Create(
+                    baseline,
                     ArchitectureDiagnostics.LayerDeclarationNamespaceMismatch,
                     primary,
+                    baselineKey,
                     type.ToDisplayString(),
                     declaredLayer,
                     GetNamespaceName(type.ContainingNamespace),
-                    namespaceLayer));
+                    namespaceLayer);
+                if (diagnostic is not null)
+                {
+                    context.ReportDiagnostic(diagnostic);
+                }
             }
         }
     }
@@ -626,6 +672,7 @@ private static void AnalyzeLayerDeclaration(
     private static void AnalyzeLayerCoverage(
         SymbolAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
         ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
     {
@@ -697,11 +744,17 @@ private static void AnalyzeLayerDeclaration(
         }
 
         var namespaceName = GetNamespaceName(type.ContainingNamespace);
-        context.ReportDiagnostic(Diagnostic.Create(
+        var diagnostic = BaselineDiagnostic.Create(
+            baseline,
             ArchitectureDiagnostics.ArchitectureCoverageGap,
             primary,
+            type.OriginalDefinition.ToDisplayString(),
             type.ToDisplayString(),
-            namespaceName.Length == 0 ? "<global namespace>" : namespaceName));
+            namespaceName.Length == 0 ? "<global namespace>" : namespaceName);
+        if (diagnostic is not null)
+        {
+            context.ReportDiagnostic(diagnostic);
+        }
     }
 
     private static List<string> GetAppliedMarkerLayers(INamedTypeSymbol type, ArchitectureContract contract)
@@ -812,6 +865,7 @@ private static void AnalyzeLayerDeclaration(
     private static void AnalyzeInteropBoundary(
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
+        ArchitectureBaseline baseline,
         ConcurrentDictionary<string, byte> reportedInterop)
     {
         if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
@@ -865,12 +919,20 @@ private static void AnalyzeLayerDeclaration(
                 continue;
             }
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            var baselineKey = method.OriginalDefinition.ToDisplayString()
+                + " [" + attributeFullName + "]";
+            var diagnostic = BaselineDiagnostic.Create(
+                baseline,
                 ArchitectureDiagnostics.InteropBoundaryViolation,
                 violationLocation,
+                baselineKey,
                 method.Name,
                 rule.AllowedLayer,
-                rule.Reason));
+                rule.Reason);
+            if (diagnostic is not null)
+            {
+                context.ReportDiagnostic(diagnostic);
+            }
         }
     }
 
@@ -1067,7 +1129,8 @@ internal sealed class DependencyViolation
         string sourceLayer,
         string targetDisplay,
         string targetLayer,
-        string reason)
+        string reason,
+        string baselineKey)
     {
         Location = location;
         SourceDisplay = sourceDisplay;
@@ -1075,6 +1138,7 @@ internal sealed class DependencyViolation
         TargetDisplay = targetDisplay;
         TargetLayer = targetLayer;
         Reason = reason;
+        BaselineKey = baselineKey;
     }
 
     public Location Location { get; }
@@ -1088,4 +1152,6 @@ internal sealed class DependencyViolation
     public string TargetLayer { get; }
 
     public string Reason { get; }
+
+    public string BaselineKey { get; }
 }
