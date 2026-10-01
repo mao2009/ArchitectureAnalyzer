@@ -88,7 +88,7 @@ From NuGet — the package ships the analyzer under `analyzers/dotnet/cs`, so a 
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.0.1" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.1.0" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
 </ItemGroup>
 ```
@@ -107,9 +107,10 @@ Or from source, if you vendor or submodule this repository:
 `OutputItemType="Analyzer"` loads the assembly as an analyzer; `ReferenceOutputAssembly="false"`
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
-The published `loach.ArchitectureAnalyzer` **0.0.1** is cut from tag `v0.0.1` and carries
-AARC001–AARC003 only; AARC004–AARC010 are on `main` and ship in the next tagged release.
-Use the source reference if you need them today.
+The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
+`v0.1.0`, and carries AARC001–AARC009. Schema v2 / AARC010 were added after that tag and are
+currently available from `main` (or a source reference); they require the next tagged NuGet
+release before PackageReference consumers can use them.
 
 ### 3. Build
 
@@ -256,9 +257,11 @@ MIT — see [`LICENSE`](LICENSE).
 
 Ten diagnostics (AARC001–AARC010), namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, attribute-driven interop boundaries, and `.editorconfig`
-operational options. The last published
-package is `loach.ArchitectureAnalyzer` 0.0.1 (AARC001–AARC003); everything above is on `main`
-awaiting the next tag.
+operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009);
+schema v2 / AARC010 are on `main` awaiting the next tag.
+
+The published NuGet package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009).
+Schema v2 / AARC010 are currently on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
