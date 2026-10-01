@@ -250,8 +250,19 @@ internal static class Program
 
     private static string ReadMessage(JsonElement result)
     {
-        if (result.TryGetProperty("message", out var message)
-            && message.ValueKind == JsonValueKind.Object
+        if (!result.TryGetProperty("message", out var message))
+        {
+            return string.Empty;
+        }
+
+        // The compiler may emit SARIF 1.x-style string messages or SARIF 2.x message objects
+        // depending on host/MSBuild plumbing. Accept both so baseline generation is host-stable.
+        if (message.ValueKind == JsonValueKind.String)
+        {
+            return message.GetString() ?? string.Empty;
+        }
+
+        if (message.ValueKind == JsonValueKind.Object
             && message.TryGetProperty("text", out var text)
             && text.ValueKind == JsonValueKind.String)
         {
