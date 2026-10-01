@@ -5,7 +5,8 @@ namespace ArchitectureAnalyzer.BaselineTool;
 
 internal static class Program
 {
-    private const string BaselineProperty = "architectureBaselineKey";
+    private const string CaptureDiagnosticId = "AARC013";
+    private const string CapturePrefix = "Baseline capture for ";
     private static readonly HashSet<string> BaselinableIds = new(StringComparer.Ordinal)
     {
         "AARC002",
@@ -145,6 +146,8 @@ internal static class Program
         using var document = JsonDocument.Parse(File.ReadAllText(sarifPath));
         var entries = new Dictionary<(string DiagnosticId, string Key), BaselineEntry>();
         var fatal = new List<string>();
+        var baselinableDiagnosticCount = 0;
+        var captureRecordCount = 0;
 
         if (!document.RootElement.TryGetProperty("runs", out var runs)
             || runs.ValueKind != JsonValueKind.Array)
@@ -171,6 +174,26 @@ internal static class Program
                 var ruleId = ruleIdElement.GetString()!;
                 var message = ReadMessage(result);
 
+                if (string.Equals(ruleId, CaptureDiagnosticId, StringComparison.Ordinal))
+                {
+                    if (!TryParseCaptureMessage(message, out var capturedId, out var key))
+                    {
+                        fatal.Add($"{CaptureDiagnosticId}: malformed capture record: {message}");
+                        continue;
+                    }
+
+                    if (!BaselinableIds.Contains(capturedId!))
+                    {
+                        fatal.Add(
+                            $"{CaptureDiagnosticId}: captured unsupported diagnostic '{capturedId}'");
+                        continue;
+                    }
+
+                    captureRecordCount++;
+                    entries[(capturedId!, key!)] = new BaselineEntry(capturedId!, key!);
+                    continue;
+                }
+
                 if (FatalArchitectureIds.Contains(ruleId))
                 {
                     fatal.Add($"{ruleId}: {message}");
@@ -179,14 +202,7 @@ internal static class Program
 
                 if (BaselinableIds.Contains(ruleId))
                 {
-                    if (!TryReadBaselineKey(result, out var key))
-                    {
-                        fatal.Add(
-                            $"{ruleId}: missing diagnostic property '{BaselineProperty}': {message}");
-                        continue;
-                    }
-
-                    entries[(ruleId, key!)] = new BaselineEntry(ruleId, key!, message);
+                    baselinableDiagnosticCount++;
                     continue;
                 }
 
@@ -197,22 +213,39 @@ internal static class Program
             }
         }
 
+        if (baselinableDiagnosticCount > 0 && captureRecordCount == 0)
+        {
+            fatal.Add(
+                "baseline capture mode reported architecture-policy diagnostics but no AARC013 "
+                + "capture records were present");
+        }
+
         return new DiagnosticCollection(entries.Values.ToArray(), fatal);
     }
 
-    private static bool TryReadBaselineKey(JsonElement result, out string? key)
+    private static bool TryParseCaptureMessage(
+        string message,
+        out string? diagnosticId,
+        out string? key)
     {
+        diagnosticId = null;
         key = null;
-        if (!result.TryGetProperty("properties", out var properties)
-            || properties.ValueKind != JsonValueKind.Object
-            || !properties.TryGetProperty(BaselineProperty, out var keyElement)
-            || keyElement.ValueKind != JsonValueKind.String)
+
+        if (!message.StartsWith(CapturePrefix, StringComparison.Ordinal))
         {
             return false;
         }
 
-        key = keyElement.GetString();
-        return !string.IsNullOrWhiteSpace(key);
+        var remainder = message.Substring(CapturePrefix.Length);
+        var separator = remainder.IndexOf(": ", StringComparison.Ordinal);
+        if (separator <= 0 || separator + 2 >= remainder.Length)
+        {
+            return false;
+        }
+
+        diagnosticId = remainder.Substring(0, separator);
+        key = remainder.Substring(separator + 2);
+        return diagnosticId.Length > 0 && key.Length > 0;
     }
 
     private static string ReadMessage(JsonElement result)
@@ -281,7 +314,7 @@ internal static class Program
 
     private sealed record BaselineFile(int Version, IReadOnlyList<BaselineEntry> Entries);
 
-    private sealed record BaselineEntry(string DiagnosticId, string Key, string Message);
+    private sealed record BaselineEntry(string DiagnosticId, string Key);
 
     private sealed record DiagnosticCollection(
         IReadOnlyList<BaselineEntry> Entries,
