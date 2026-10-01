@@ -1,0 +1,9 @@
+// Injected by verify-baseline.sh only.
+using BaselineGate.Application;
+
+namespace BaselineGate.Domain;
+
+public sealed class NewDebt
+{
+    public AppService Service { get; } = new();
+}
