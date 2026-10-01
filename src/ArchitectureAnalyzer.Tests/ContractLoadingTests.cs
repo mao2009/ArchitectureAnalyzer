@@ -156,6 +156,63 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
+    public async Task MultipleContractFiles_ReportAmbiguousConfigurationInsteadOfChoosingOne()
+    {
+        var test = new ArchitectureAnalyzerTest
+        {
+            TestCode = CleanSource,
+        };
+        test.TestState.AdditionalFiles.Add(("z/architecture.contract.json", ValidContract));
+        test.TestState.AdditionalFiles.Add(("a/ARCHITECTURE.CONTRACT.JSON", ValidContract));
+
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "multiple architecture contract files were supplied: "
+                + "a/ARCHITECTURE.CONTRACT.JSON, z/architecture.contract.json; "
+                + "include exactly one 'architecture.contract.json' AdditionalFiles item"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task MultipleContractFiles_WithMixedPathSeparators_AreStillDetected()
+    {
+        var test = new ArchitectureAnalyzerTest
+        {
+            TestCode = CleanSource,
+        };
+        test.TestState.AdditionalFiles.Add(("z\\architecture.contract.json", ValidContract));
+        test.TestState.AdditionalFiles.Add(("a/architecture.contract.json", ValidContract));
+
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "multiple architecture contract files were supplied: "
+                + "a/architecture.contract.json, z/architecture.contract.json; "
+                + "include exactly one 'architecture.contract.json' AdditionalFiles item"));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task MultipleContractFiles_ContractRequiredFalse_IsSilentNoOp()
+    {
+        var test = new ArchitectureAnalyzerTest
+        {
+            TestCode = CleanSource,
+        };
+        test.TestState.AdditionalFiles.Add(("z/architecture.contract.json", ValidContract));
+        test.TestState.AdditionalFiles.Add(("a/architecture.contract.json", ValidContract));
+        test.TestState.AnalyzerConfigFiles.Add(("/0/.editorconfig", """
+            [*.cs]
+            dotnet_diagnostic.AARC001.architecture_analyzer.contract_required = false
+            """));
+
+        await test.RunAsync();
+    }
+
+    [Fact]
     public void Loader_ValidJson_ProducesContract()
     {
         var result = ArchitectureContractLoader.Load(ValidContract);

@@ -47,20 +47,25 @@ consumer.
 | **Enabled by default** | Yes |
 
 Argument `{0}` is the contract file name; `{1}` is the specific reason — `file not found`, the
-raw `System.Text.Json` parse error, or a schema-validation message such as
-`layer 'Application' referenced in forbiddenDependencies is not declared in layers`.
+raw `System.Text.Json` parse error, a schema-validation message such as
+`layer 'Application' referenced in forbiddenDependencies is not declared in layers`, or an
+ambiguous-discovery message listing multiple matching `architecture.contract.json` files.
 
 ### Description
 
-Raised when a project declares an `architecture.contract.json` in `AdditionalFiles` but that file
-cannot be read, is not valid JSON, or is internally inconsistent. It exists so that a broken
-contract fails loudly instead of silently switching enforcement off — a silently disabled
-analyzer would be less trustworthy than the hand-maintained document it replaces.
+Raised when a project declares `architecture.contract.json` in `AdditionalFiles` but discovery or
+loading is unsafe: more than one matching contract is supplied, the selected file cannot be read,
+the JSON is invalid, or the contract is internally inconsistent. When discovery is ambiguous the
+analyzer reports the matching paths and enforces **none** of them; it never silently chooses one.
+This keeps a configuration mistake from applying an unintended architecture policy.
 
 A project that declares **no** contract file at all is not an error: the analyzer is opt-in and
-does nothing at all in that case. The diagnostic is reported once per compilation, without a
-source location, because the failure is a property of the compilation rather than of any one
-line of code.
+does nothing at all in that case. Likewise, setting
+`dotnet_diagnostic.AARC001.architecture_analyzer.contract_required = false` suppresses AARC001 for
+both malformed/unreadable contracts and ambiguous duplicate-contract discovery; in either case no
+contract is enforced for that compilation. The diagnostic is otherwise reported once per
+compilation, without a source location, because the failure is a property of the compilation
+rather than of any one line of code.
 
 ### Minimal triggering example
 
