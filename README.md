@@ -33,7 +33,7 @@ CI log ten minutes later), and it needs no new infrastructure. See
 
 ```
    Architecture Contract          Analyzer                Roslyn Diagnostic         dotnet build            CI Gate
- architecture.contract.json  ->  ArchitectureContract  ->  AARC001 .. AARC010  -> compilation fails  ->  workflow fails
+ architecture.contract.json  ->  ArchitectureContract  ->  AARC001 .. AARC012  -> compilation fails  ->  workflow fails
  (JSON, in your repo,             Analyzer                 (Error, except          with an error           on non-zero exit
   under code review)          (generic; no rules            AARC006/008/009)      at the exact line
                                of its own)
@@ -106,6 +106,8 @@ From NuGet — the package ships the analyzer under `analyzers/dotnet/cs`, so a 
 <ItemGroup>
   <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.1.0" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
+  <!-- Optional: checked-in legacy-debt ratchet. -->
+  <AdditionalFiles Include="architecture.baseline.json" Condition="Exists('architecture.baseline.json')" />
 </ItemGroup>
 ```
 
@@ -126,9 +128,10 @@ keeps it out of your runtime dependencies. Adjust the relative path for your lay
 The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
 `v0.1.0`, and carries AARC001–AARC009. Schema v2/v3/v4/v5, AARC010/AARC011,
 `allowedDependencies`, `dependencyGraph` and justified `exceptions` were added after that tag
-and are currently available from `main` (or a source reference); they require the next tagged
-NuGet release before PackageReference consumers can use them. Package 0.1.0 consumers should keep
-using schema v1 and omit v2+ properties.
+and are currently available from `main` (or a source reference); baseline ratcheting and AARC012
+are also on `main`, together with the new `loach.ArchitectureAnalyzer.Baseline` dotnet tool.
+They require the next tagged NuGet release before PackageReference/tool consumers can use them.
+Package 0.1.0 consumers should keep using schema v1 and omit v2+ properties.
 
 ### 3. Build
 
@@ -144,6 +147,32 @@ In a multi-project solution, this opt-in is **per compilation**. You may distrib
 reference centrally while adding `AdditionalFiles` only to governed projects. Different projects
 can use different contracts without leakage; test/tooling projects with the analyzer loaded but no
 contract remain no-op. See [`docs/multi-project-design.md`](docs/multi-project-design.md).
+
+### Ratchet existing architecture debt
+
+If enabling the contract reveals existing violations that cannot all be fixed immediately, keep
+normal diagnostic severities and add a baseline instead of downgrading the rules:
+
+```xml
+<ItemGroup>
+  <AdditionalFiles Include="architecture.baseline.json" />
+</ItemGroup>
+```
+
+Generate or refresh it from the governed project:
+
+```bash
+dotnet tool install --global loach.ArchitectureAnalyzer.Baseline
+architecture-baseline generate MyApp.csproj
+```
+
+The generator temporarily tells the analyzer to ignore the old baseline, captures the current
+baselinable diagnostics, and rewrites deterministic entries keyed by symbols rather than line
+numbers. Normal builds then tolerate only those exact known entries. New violations still fail;
+after fixes, rerun the generator and stale entries disappear.
+
+AARC001/AARC008/AARC009/AARC012 cannot be baselined because they indicate broken contract,
+configuration or baseline infrastructure. See [`docs/baseline.md`](docs/baseline.md).
 
 ### Adding it to an existing project
 
@@ -195,11 +224,13 @@ turns the gate off exactly where it matters most.
 | [AARC009](docs/diagnostics.md#aarc009) | Unknown architecture analyzer configuration property | Warning |
 | [AARC010](docs/diagnostics.md#aarc010) | Type is not assigned to an architecture layer | Error |
 | [AARC011](docs/diagnostics.md#aarc011) | Declared architecture dependency graph contains a cycle | Error |
+| [AARC012](docs/diagnostics.md#aarc012) | Architecture baseline could not be loaded | Error |
 
 AARC004–AARC006 activate only when the contract declares a `layerDeclaration` section, AARC007
 only when it declares `interopBoundaryRules`, AARC010 only when `unclassifiedCode=error`, and
-AARC011 only when schema-v4 `dependencyGraph.requireAcyclic=true`. Existing older-schema
-contracts keep their previous behavior. Full message formats, triggering examples and per-diagnostic
+AARC011 only when schema-v4 `dependencyGraph.requireAcyclic=true`. AARC012 is emitted only when
+a supplied `architecture.baseline.json` is ambiguous or invalid. Existing projects with no
+baseline keep their previous behavior. Full message formats, triggering examples and per-diagnostic
 suppression options are in [`docs/diagnostics.md`](docs/diagnostics.md).
 
 ## Configuration
@@ -260,6 +291,7 @@ dotnet build ArchitectureAnalyzer.sln
 dotnet test src/ArchitectureAnalyzer.Tests
 tests/GateVerification/verify-gate.sh                 # project-reference real-build proof; needs bash
 tests/MultiProjectGate/verify-multi-project.sh         # per-compilation multi-project isolation proof
+tests/BaselineGate/verify-baseline.sh                  # baseline generation / ratcheting / pruning proof
 bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 dotnet run --project tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj -c Release
@@ -277,6 +309,10 @@ reference shared across all four compilations. Only Producer/Consumer receive co
 project-specific violations prove each governed project uses its own policy, while Tests/Tooling
 remain silent without contracts. See
 [`tests/MultiProjectGate/README.md`](tests/MultiProjectGate/README.md).
+
+`verify-baseline.sh` proves the full ratchet cycle: checked-in debt is tolerated, new debt still
+fails, the generator captures the reviewed current set, and regeneration prunes fixed entries.
+See [`tests/BaselineGate/README.md`](tests/BaselineGate/README.md).
 
 The representative performance benchmark generates three independent compilations with 300 source
 files total, measures contract loading, dependency analysis, forbidden-API analysis and the full
@@ -303,6 +339,7 @@ Documentation map:
 | [`docs/platform-compatibility.md`](docs/platform-compatibility.md) | CI-validated OS, .NET SDK and Roslyn-host support envelope |
 | [`docs/performance.md`](docs/performance.md) | representative workload, measured baseline and CI regression budgets |
 | [`docs/multi-project-design.md`](docs/multi-project-design.md) | compilation-scoped contract routing for multi-project solutions |
+| [`docs/baseline.md`](docs/baseline.md) | stable diagnostic baselines and legacy-code ratcheting workflow |
 | [`docs/compatibility/`](docs/compatibility/) | consumer-specific migration material, kept out of the documents above |
 
 ## License
@@ -311,12 +348,13 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## Status
 
-Eleven diagnostics (AARC001–AARC011), namespace **and** attribute-based layer classification,
+Twelve diagnostics (AARC001–AARC012), namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
 declared-graph DAG enforcement, schema-v5 exact justified AARC002/AARC003 exceptions,
 attribute-driven interop boundaries, and `.editorconfig` operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
 (AARC001–AARC009); schema v2/v3/v4/v5, AARC010/AARC011, `allowedDependencies`,
-`dependencyGraph` and `exceptions` are on `main` awaiting the next tag.
+`dependencyGraph`, `exceptions`, baseline ratcheting, AARC012 and the baseline generator tool
+are on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
