@@ -57,6 +57,7 @@ baked into the analyzer.
 
 ```json
 {
+  "schemaVersion": 1,
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
     { "name": "Application", "namespaceRoots": [ "MyApp.Application" ] }
@@ -73,6 +74,10 @@ baked into the analyzer.
 Layers plus forbidden edges and APIs are the minimum. Attribute-based layer declaration
 (`layerDeclaration`) and interop boundaries (`interopBoundaryRules`) are optional sections
 documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+
+New contracts should declare `"schemaVersion": 1`. Existing versionless contracts remain valid
+and are interpreted as schema v1 during the 0.x line; unsupported future schema versions fail with
+AARC001 instead of being interpreted with older semantics.
 
 ### 2. Wire it into the project
 
@@ -244,7 +249,7 @@ awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
-([`docs/architecture.md`](docs/architecture.md#known-limitation-exactly-one-contract-per-compilation)).
+([`docs/architecture.md`](docs/architecture.md#exactly-one-contract-per-compilation)).
 [PSXRecompStudio](https://github.com/mao2009/PSXRecompStudio), whose hardcoded in-house analyzer
 motivated several of these generic features, is the first consumer; its capability baseline is
 tracked in [`docs/compatibility/psxrecomp-analyzer-baseline.md`](docs/compatibility/psxrecomp-analyzer-baseline.md),
