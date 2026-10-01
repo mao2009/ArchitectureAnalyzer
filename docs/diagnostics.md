@@ -125,16 +125,22 @@ dotnet_diagnostic.AARC001.severity = none
 | **Enabled by default** | Yes |
 
 Arguments are the source type display name, its layer, the target type display name, its layer,
-and the `reason` string from the matching `forbiddenDependencies` entry.
+and the effective rationale: either the matching `forbiddenDependencies` reason or the
+schema-v3 `allowedDependencies` rule/fallback that rejected an unlisted target.
 
 ### Description
 
-Raised when a type whose namespace maps to one declared layer references a type whose namespace
-maps to another declared layer, and the contract lists that `from` → `to` pair under
-`forbiddenDependencies`. This is the flagship rule: it turns "Domain must not know about
-Application" from a sentence in a document into a build error. The check is directional — the
-reverse edge is allowed unless the contract forbids it separately — and each distinct
-source-type → target-type pair is reported once per compilation rather than once per reference.
+Raised when a type in one resolved layer directly references a type in another resolved layer
+and the dependency is denied by the contract. A dependency is denied either because the exact
+`from` → `to` edge is listed under `forbiddenDependencies`, or because schema-v3
+`allowedDependencies` governs the source layer and omits the target layer.
+
+The check is directional. Source layers omitted from `allowedDependencies` stay permissive for
+incremental adoption, while an entry with `to: []` rejects every cross-layer dependency from
+that source. Same-layer references are always allowed. Explicit forbidden edges are evaluated
+before the allowlist so their specific reason wins when both mechanisms deny an observed edge.
+Each distinct source-type → target-type pair is reported once per compilation rather than once
+per reference.
 
 ### Minimal triggering example
 
@@ -163,6 +169,25 @@ public sealed class Order
     public MyApp.Application.OrderService Service { get; set; }
 }
 ```
+
+### Positive allowlist example
+
+```json
+{
+  "schemaVersion": 3,
+  "layers": [
+    { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
+    { "name": "Application", "namespaceRoots": [ "MyApp.Application" ] },
+    { "name": "Shared", "namespaceRoots": [ "MyApp.Shared" ] }
+  ],
+  "allowedDependencies": [
+    { "from": "Domain", "to": [ "Shared" ], "reason": "Domain may depend only on Shared." }
+  ]
+}
+```
+
+Here `Domain -> Shared` is allowed, `Domain -> Application` reports AARC002, and source layers
+without an allowlist entry remain permissive unless an explicit forbidden edge applies.
 
 ### Suppressing it
 

@@ -1,6 +1,6 @@
 # Allowed dependency policy design
 
-Status: accepted design target for issue #26; implementation is tracked by #6.
+Status: implemented by #6 as Architecture Contract schema v3.
 
 ## Goal
 
@@ -202,9 +202,9 @@ Every declared source layer is now positively constrained.
 The explicit prohibition is consistent because Infrastructure is not in Application's allowed
 targets; its more specific reason is used if that dependency is observed.
 
-## Implementation requirements for #6
+## Implementation shape
 
-The implementation PR should:
+The implementation follows this design:
 
 - advance `CurrentSchemaVersion` to 3 while preserving v1/v2 support;
 - add a validated immutable allowed-dependency model to `ArchitectureContract`;
@@ -215,7 +215,7 @@ The implementation PR should:
 - add analyzer tests for allowed, denied, omitted-source, empty-target, marker-resolved and
   blacklist/allowlist interaction cases;
 - extend the real build gate with at least one allowlist violation and clean recovery;
-- update the public schema/diagnostic documentation only when the capability is implemented.
+- publish the schema and AARC002 behavior in the public architecture/diagnostic documentation.
 
 ## Non-goals
 

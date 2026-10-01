@@ -53,6 +53,47 @@ public sealed class ForbiddenDependencyRule
 }
 
 /// <summary>
+/// Positive dependency policy for one declared source layer. When present, cross-layer
+/// dependencies from <see cref="From"/> are allowed only to <see cref="Targets"/>.
+/// </summary>
+public sealed class AllowedDependencyRule
+{
+    /// <summary>Creates a positive dependency rule.</summary>
+    /// <param name="from">Source layer name.</param>
+    /// <param name="targets">Declared target layers this source may reference.</param>
+    /// <param name="reason">Optional rationale surfaced when an unlisted target is referenced.</param>
+    public AllowedDependencyRule(string from, ImmutableArray<string> targets, string reason)
+    {
+        From = from;
+        Targets = targets.IsDefault ? ImmutableArray<string>.Empty : targets;
+        Reason = reason;
+    }
+
+    /// <summary>The source layer governed by this allowlist.</summary>
+    public string From { get; }
+
+    /// <summary>Allowed cross-layer targets, in contract order.</summary>
+    public ImmutableArray<string> Targets { get; }
+
+    /// <summary>Optional rationale surfaced when the allowlist rejects an edge.</summary>
+    public string Reason { get; }
+
+    /// <summary>Whether the given target layer is explicitly allowed.</summary>
+    public bool Allows(string targetLayer)
+    {
+        foreach (var target in Targets)
+        {
+            if (string.Equals(target, targetLayer, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>
 /// A single forbidden-API rule scoped to one declared layer.
 /// </summary>
 public sealed class ForbiddenApiRule
@@ -222,6 +263,7 @@ public sealed class ArchitectureContract
     private readonly ImmutableDictionary<string, ImmutableArray<ForbiddenApiRule>> _apiRulesByLayer;
     private readonly ImmutableDictionary<string, string> _markerLayerByFqn;
     private readonly ImmutableDictionary<string, InteropBoundaryRule> _interopRulesByAttribute;
+    private readonly ImmutableDictionary<string, AllowedDependencyRule> _allowedDependenciesBySource;
 
     /// <summary>Creates a contract from already-validated sections.</summary>
     /// <param name="layers">Declared layers.</param>
@@ -230,13 +272,15 @@ public sealed class ArchitectureContract
     /// <param name="layerDeclaration">Optional declaration-rules section; <see langword="null"/> keeps namespace-only behaviour.</param>
     /// <param name="interopBoundaryRules">Interop-boundary rules; empty when the section is absent.</param>
     /// <param name="unclassifiedCode">Coverage policy for types that resolve to no declared layer.</param>
+    /// <param name="allowedDependencies">Optional positive dependency rules, empty when absent.</param>
     public ArchitectureContract(
         ImmutableArray<LayerDefinition> layers,
         ImmutableArray<ForbiddenDependencyRule> forbiddenDependencies,
         ImmutableArray<ForbiddenApiRule> forbiddenApis,
         LayerDeclaration? layerDeclaration = null,
         ImmutableArray<InteropBoundaryRule>? interopBoundaryRules = null,
-        UnclassifiedCodePolicy unclassifiedCode = UnclassifiedCodePolicy.Ignore)
+        UnclassifiedCodePolicy unclassifiedCode = UnclassifiedCodePolicy.Ignore,
+        ImmutableArray<AllowedDependencyRule>? allowedDependencies = null)
     {
         Layers = layers.IsDefault ? ImmutableArray<LayerDefinition>.Empty : layers;
         ForbiddenDependencies = forbiddenDependencies.IsDefault
@@ -245,6 +289,18 @@ public sealed class ArchitectureContract
         ForbiddenApis = forbiddenApis.IsDefault ? ImmutableArray<ForbiddenApiRule>.Empty : forbiddenApis;
         LayerDeclaration = layerDeclaration;
         UnclassifiedCode = unclassifiedCode;
+        AllowedDependencies = allowedDependencies ?? ImmutableArray<AllowedDependencyRule>.Empty;
+        if (AllowedDependencies.IsDefault)
+        {
+            AllowedDependencies = ImmutableArray<AllowedDependencyRule>.Empty;
+        }
+
+        _allowedDependenciesBySource = AllowedDependencies.IsEmpty
+            ? ImmutableDictionary<string, AllowedDependencyRule>.Empty
+            : AllowedDependencies.ToImmutableDictionary(
+                rule => rule.From,
+                rule => rule,
+                StringComparer.Ordinal);
 
         _markerLayerByFqn = layerDeclaration?.MarkerAttributes.ToImmutableDictionary(
             mapping => mapping.AttributeFqn,
@@ -288,6 +344,9 @@ public sealed class ArchitectureContract
 
     /// <summary>Declared forbidden API rules, in contract order.</summary>
     public ImmutableArray<ForbiddenApiRule> ForbiddenApis { get; }
+
+    /// <summary>Positive dependency allowlists, in contract order.</summary>
+    public ImmutableArray<AllowedDependencyRule> AllowedDependencies { get; }
 
 /// <summary>Optional layer-declaration ruleset, or <see langword="null"/> for namespace-only.</summary>
     public LayerDeclaration? LayerDeclaration { get; }
@@ -358,6 +417,35 @@ public sealed class ArchitectureContract
                 reason = rule.Reason;
                 return true;
             }
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether a cross-layer dependency is disallowed by either the explicit denylist
+    /// or a positive allowlist for the source layer. Explicit forbidden edges take precedence so
+    /// their more specific rationale is preserved.
+    /// </summary>
+    /// <param name="fromLayer">Resolved source layer.</param>
+    /// <param name="toLayer">Resolved target layer.</param>
+    /// <param name="reason">Receives the diagnostic rationale when disallowed.</param>
+    /// <returns><see langword="true"/> when the dependency must produce AARC002.</returns>
+    public bool IsDependencyDisallowed(string fromLayer, string toLayer, out string reason)
+    {
+        if (IsForbiddenDependency(fromLayer, toLayer, out reason))
+        {
+            return true;
+        }
+
+        if (_allowedDependenciesBySource.TryGetValue(fromLayer, out var allowlist)
+            && !allowlist.Allows(toLayer))
+        {
+            reason = string.IsNullOrWhiteSpace(allowlist.Reason)
+                ? $"target layer '{toLayer}' is not listed in allowedDependencies for '{fromLayer}'"
+                : allowlist.Reason;
+            return true;
         }
 
         reason = string.Empty;

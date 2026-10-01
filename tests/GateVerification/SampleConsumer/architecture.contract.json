@@ -1,9 +1,17 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "SampleConsumer.Domain" ] },
-    { "name": "Application", "namespaceRoots": [ "SampleConsumer.Application" ] }
+    { "name": "Application", "namespaceRoots": [ "SampleConsumer.Application" ] },
+    { "name": "Shared", "namespaceRoots": [ "SampleConsumer.Shared" ] }
+  ],
+  "allowedDependencies": [
+    {
+      "from": "Application",
+      "to": [ "Domain" ],
+      "reason": "Application may depend only on Domain."
+    }
   ],
   "forbiddenDependencies": [
     {

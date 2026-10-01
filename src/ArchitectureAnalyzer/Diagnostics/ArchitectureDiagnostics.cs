@@ -39,8 +39,8 @@ public static class ArchitectureDiagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "A type whose namespace maps to one declared layer referenced a type in another "
-            + "declared layer over an edge listed in the contract's forbiddenDependencies.",
+        description: "A type in one declared layer referenced a type in another layer over an edge "
+            + "denied either by forbiddenDependencies or by a schema-v3 allowedDependencies allowlist.",
         helpLinkUri: HelpLinkPrefix + "aarc002",
         customTags: WellKnownDiagnosticTags.CompilationEnd);
 

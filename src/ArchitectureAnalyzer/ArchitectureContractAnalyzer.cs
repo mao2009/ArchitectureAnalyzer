@@ -269,7 +269,7 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
             return;
         }
 
-        if (!contract.IsForbiddenDependency(sourceLayer, targetLayer, out var reason))
+        if (!contract.IsDependencyDisallowed(sourceLayer, targetLayer, out var reason))
         {
             return;
         }

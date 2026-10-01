@@ -57,7 +57,7 @@ baked into the analyzer.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "unclassifiedCode": "error",
   "layers": [
     { "name": "Domain", "namespaceRoots": [ "MyApp.Domain" ] },
@@ -66,20 +66,23 @@ baked into the analyzer.
   "forbiddenDependencies": [
     { "from": "Domain", "to": "Application", "reason": "Domain must not depend on the outer Application layer." }
   ],
+  "allowedDependencies": [
+    { "from": "Application", "to": [ "Domain" ], "reason": "Application may depend only on Domain." }
+  ],
   "forbiddenApis": [
     { "layer": "Domain", "type": "System.Console", "reason": "Console I/O must be abstracted behind an Infrastructure adapter." }
   ]
 }
 ```
 
-Layers are the minimum. Forbidden edges/APIs, attribute-based layer declaration
-(`layerDeclaration`), interop boundaries (`interopBoundaryRules`) and strict coverage are
-optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
+Layers are the minimum. Forbidden edges/APIs, positive dependency allowlists
+(`allowedDependencies`), attribute-based layer declaration (`layerDeclaration`), interop
+boundaries (`interopBoundaryRules`) and strict coverage are optional policies documented in [`docs/architecture.md` §2](docs/architecture.md#2-contract-schema).
 
-New contracts should declare the current `"schemaVersion": 2`. Schema v2 adds
-`unclassifiedCode`: `"error"` prevents a new namespace from silently escaping the architecture,
-while `"ignore"` preserves legacy behavior. Existing versionless/v1 contracts remain valid and
-permissive; unsupported future versions fail with AARC001 instead of being guessed.
+New contracts should declare the current `"schemaVersion": 3`. Schema v2 added
+`unclassifiedCode`; schema v3 adds `allowedDependencies` so selected source layers can use a
+positive dependency allowlist. Existing versionless/v1/v2 contracts remain valid; unsupported
+future versions fail with AARC001 instead of being guessed.
 
 ### 2. Wire it into the project
 
@@ -108,9 +111,10 @@ Or from source, if you vendor or submodule this repository:
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
 The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
-`v0.1.0`, and carries AARC001–AARC009. Schema v2 / AARC010 were added after that tag and are
-currently available from `main` (or a source reference); they require the next tagged NuGet
-release before PackageReference consumers can use them.
+`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3, AARC010 and
+`allowedDependencies` were added after that tag and are currently available from `main` (or a
+source reference); they require the next tagged NuGet release before PackageReference consumers
+can use them. Package 0.1.0 consumers should keep using schema v1 and omit v2/v3-only properties.
 
 ### 3. Build
 
@@ -130,8 +134,10 @@ the analyzer is opt-in and does nothing without a contract.
    contract that fails the build in fifty places on day one gets deleted, not fixed.
 3. Add the two item-group lines above to each project you want governed.
 4. Build, fix or explicitly suppress what surfaces, then widen the contract one rule at a time.
-5. Once the intended namespace roots are complete, move to schema v2 and set
-   `"unclassifiedCode": "error"` to ratchet against future coverage gaps.
+5. Once the intended namespace roots are complete, enable `"unclassifiedCode": "error"` to
+   ratchet against future coverage gaps.
+6. Move selected layers to schema-v3 `allowedDependencies` when you want new dependency
+   directions to be denied unless explicitly listed.
 
 `namespaceRoots` are prefixes, so `MyApp.Domain` covers `MyApp.Domain.Orders.Pricing` too.
 Unclassified namespaces stay permitted for v1/versionless contracts and v2 `"ignore"`; v2
@@ -225,10 +231,11 @@ bash tests/PackageConsumer/verify-package-consumer.sh # Linux packed-NuGet E2E
 ./tests/PackageConsumer/verify-package-consumer.ps1   # Windows packed-NuGet E2E
 ```
 
-`verify-gate.sh` builds a sample consumer project, proves an injected dependency violation fails
-with AARC002, then proves a schema-v2 coverage gap fails with AARC010 under `error` and passes for
-the same source under `ignore`, before restoring a clean strict build. The unit tests use an
-in-memory compilation; this script is the evidence that enforcement survives a genuine build.
+`verify-gate.sh` builds a sample consumer project, proves both an explicit forbidden edge and a
+schema-v3 positive-allowlist violation fail with AARC002, then proves a coverage gap fails with
+AARC010 under `error` and passes for the same source under `ignore`, before restoring a clean
+strict build. The unit tests use an in-memory compilation; this script is the evidence that
+enforcement survives a genuine build.
 See [`tests/GateVerification/README.md`](tests/GateVerification/README.md).
 
 `verify-package-consumer.sh` covers the distribution boundary separately: it packs the analyzer
@@ -256,9 +263,10 @@ MIT — see [`LICENSE`](LICENSE).
 ## Status
 
 Ten diagnostics (AARC001–AARC010), namespace **and** attribute-based layer classification,
-schema-v2 strict architecture coverage, attribute-driven interop boundaries, and `.editorconfig`
-operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009);
-schema v2 / AARC010 are on `main` awaiting the next tag.
+schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists,
+attribute-driven interop boundaries, and `.editorconfig` operational options. The current
+published package is `loach.ArchitectureAnalyzer` 0.1.0 (AARC001–AARC009); schema v2/v3,
+AARC010 and `allowedDependencies` are on `main` awaiting the next tag.
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
