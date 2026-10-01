@@ -44,6 +44,7 @@ consumer.
 | [AARC010](#aarc010) | Type is not assigned to an architecture layer | Error | Yes |
 | [AARC011](#aarc011) | Declared architecture dependency graph contains a cycle | Error | Yes |
 | [AARC012](#aarc012) | Architecture baseline could not be loaded | Error | Yes |
+| [AARC013](#aarc013) | Architecture baseline capture record | Warning | Capture mode only |
 
 ---
 
@@ -791,6 +792,41 @@ Fix or regenerate the baseline. Suppressing AARC012 is discouraged because it hi
 ratcheting artifact while all baseline suppression is disabled.
 
 See [`baseline.md`](baseline.md) for the supported generator and stable-key model.
+
+---
+
+## AARC013
+
+**Architecture baseline capture record**
+
+| | |
+|---|---|
+| **ID** | `AARC013` |
+| **Title** | Architecture baseline capture record |
+| **Message format** | `Baseline capture for {0}: {1}` |
+| **Category** | `Architecture` |
+| **Severity** | `Warning` |
+| **Enabled by default** | Yes, but emitted only in baseline capture mode |
+
+Arguments are the baselinable diagnostic ID and its stable semantic key.
+
+### Description
+
+AARC013 is transport metadata for the `architecture-baseline` generator. It is emitted only when
+the compilation receives `ArchitectureAnalyzerBaselineMode=ignore`. Each architecture-policy
+diagnostic that would normally be reported is accompanied by one AARC013 record so the generator
+can recover stable keys from compiler SARIF without relying on source line numbers.
+
+Normal builds use the default `enforce` mode and therefore never emit AARC013.
+
+AARC013 itself cannot be recorded in `architecture.baseline.json`. If a consumer suppresses
+AARC013 during capture, the generator refuses to update a non-empty baseline because policy
+diagnostics were seen without capture records.
+
+### Suppressing it
+
+Do not configure AARC013 in normal projects; it is absent in ordinary builds. During
+`architecture-baseline generate`, leave it enabled so the tool can reconstruct the debt set.
 
 ---
 
