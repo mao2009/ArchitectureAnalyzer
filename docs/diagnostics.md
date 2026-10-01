@@ -31,6 +31,7 @@ consumer.
 | [AARC008](#aarc008) | Invalid architecture analyzer configuration value | Warning | Yes |
 | [AARC009](#aarc009) | Unknown architecture analyzer configuration property | Warning | Yes |
 | [AARC010](#aarc010) | Type is not assigned to an architecture layer | Error | Yes |
+| [AARC011](#aarc011) | Declared architecture dependency graph contains a cycle | Error | Yes |
 
 ---
 
@@ -628,6 +629,88 @@ Standard severity control also works:
 [*.cs]
 dotnet_diagnostic.AARC010.severity = warning
 ```
+
+---
+
+## AARC011
+
+**Declared architecture dependency graph contains a cycle**
+
+| | |
+|---|---|
+| **ID** | `AARC011` |
+| **Title** | Declared architecture dependency graph contains a cycle |
+| **Message format** | `Declared architecture dependency graph contains a cycle: {0}` |
+| **Category** | `Architecture` |
+| **Severity** | `Error` |
+| **Enabled by default** | Yes |
+
+Argument `{0}` is a canonical cycle path such as
+`Application -> Domain -> Shared -> Application`.
+
+### Description
+
+Raised only for schema-v4 contracts that opt into DAG enforcement:
+
+```json
+"dependencyGraph": {
+  "requireAcyclic": true
+}
+```
+
+The graph contains the explicit positive edges from `allowedDependencies` only.
+`forbiddenDependencies` do not create graph edges, and current source-code references are not
+used to infer architecture edges. The rule therefore validates the declared architecture policy,
+not the implementation's observed dependency graph.
+
+The analyzer computes strongly connected components once from the parsed contract. Each cyclic
+component produces one deterministic representative cycle. Components and candidate edges are
+ordered ordinally, and a self-edge such as `Domain -> Domain` is reported as a cycle. This keeps
+the output stable across JSON ordering, concurrent analyzer execution and operating systems while
+avoiding exponential enumeration of every possible simple cycle.
+
+AARC011 has no C# source location because the violation belongs to the Architecture Contract
+itself. A malformed `dependencyGraph` property is AARC001 instead.
+
+### Minimal triggering example
+
+```json
+{
+  "schemaVersion": 4,
+  "layers": [
+    { "name": "A", "namespaceRoots": [ "MyApp.A" ] },
+    { "name": "B", "namespaceRoots": [ "MyApp.B" ] }
+  ],
+  "allowedDependencies": [
+    { "from": "A", "to": [ "B" ] },
+    { "from": "B", "to": [ "A" ] }
+  ],
+  "dependencyGraph": {
+    "requireAcyclic": true
+  }
+}
+```
+
+The build fails with a cycle path such as:
+
+```text
+error AARC011: Declared architecture dependency graph contains a cycle: A -> B -> A
+```
+
+### Suppressing it
+
+Prefer changing the declared graph. If the architecture intentionally permits cycles, remove the
+DAG requirement or set `requireAcyclic` to `false`.
+
+Standard severity control is available when a staged migration is unavoidable:
+
+```ini
+[*.cs]
+dotnet_diagnostic.AARC011.severity = warning
+```
+
+There is no separate `architecture_analyzer.*` operational toggle for AARC011 because the
+contract itself explicitly opts into the graph invariant.
 
 ---
 
