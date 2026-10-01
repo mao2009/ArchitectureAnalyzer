@@ -15,7 +15,7 @@ architecture.contract.json          (a) the consuming repo's Architecture Contra
 ArchitectureContractAnalyzer        (b) a generic DiagnosticAnalyzer, no rules of its own
         |  Roslyn semantic model      +  .editorconfig operational options (configuration.md)
         v
-AARC001 .. AARC010                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
+AARC001 .. AARC011                  (c) diagnostics; Error except AARC006/AARC008/AARC009 (Warning)
         |
         v
 dotnet build fails                  (d) locally, in the IDE, and in CI - the same command
@@ -35,9 +35,10 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
    when the corresponding contract section is
    present — a symbol action over named types for the declaration rules (AARC004/AARC005/AARC006)
    and a syntax-node action over method declarations for interop boundaries (AARC007). Schema-v2
-   strict coverage adds another named-type action for AARC010. A contract that fails to load
-   produces AARC001 once per compilation instead, and configuration problems produce
-   AARC008/AARC009 at compilation end.
+   strict coverage adds another named-type action for AARC010. Schema-v4 DAG enforcement computes
+   the explicit allowed-dependency graph once and reports AARC011 at compilation end without a new
+   source scan. A contract that fails to load produces AARC001 once per compilation instead, and
+   configuration problems produce AARC008/AARC009 at compilation end.
 4. **(d)** The violation diagnostics are `DiagnosticSeverity.Error`, so they fail `dotnet build`
    itself rather than only a separate lint step. AARC006 (declaration/namespace drift) and
    AARC008/AARC009 (configuration problems) are `Warning`: they report drift and
@@ -47,7 +48,7 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
 
 The contract is a single JSON object. `schemaVersion` is optional for backward compatibility
 with pre-versioning contracts and is interpreted as **1** when omitted. New contracts should
-declare the current `"schemaVersion": 3`; existing v1/v2 and versionless contracts remain supported.
+declare the current `"schemaVersion": 4`; existing v1/v2/v3 and versionless contracts remain supported.
 `layers` is required; the other rule sections are optional and activate only the analyses that
 depend on them.
 
@@ -65,13 +66,14 @@ contract with AARC001 instead of silently guessing.
 | `forbiddenApis` | no | AARC003 |
 | `layerDeclaration` | no | AARC004 / AARC005 / AARC006 |
 | `interopBoundaryRules` | no | AARC007 |
-| `unclassifiedCode` | no, schema v2 only | AARC010 when set to `"error"` |
+| `unclassifiedCode` | no, schema v2+ | AARC010 when set to `"error"` |
+| `dependencyGraph` | no, schema v4+ | AARC011 when `requireAcyclic=true` and the declared graph is cyclic |
 
 ```jsonc
 {
   // RECOMMENDED. Versionless legacy contracts are interpreted as v1 during the 0.x line.
-  // v2 added strict architecture coverage; v3 adds positive dependency allowlists.
-  "schemaVersion": 3,
+  // v2 added strict coverage; v3 added positive allowlists; v4 adds DAG validation.
+  "schemaVersion": 4,
 
   // OPTIONAL in v2. "ignore" preserves legacy behavior; "error" requires every applicable
   // source type to resolve through a namespace root or configured marker attribute (AARC010).
@@ -112,6 +114,11 @@ contract with AARC001 instead of silently guessing.
       "reason": "Application may depend only on Domain."
     }
   ],
+
+  // OPTIONAL in v4. Checks the explicit allowedDependencies graph only.
+  "dependencyGraph": {
+    "requireAcyclic": true
+  },
 
   // OPTIONAL. APIs that code inside a given layer must not use. "layer" must name a
   // layer declared above, otherwise the contract is invalid (AARC001).
@@ -209,6 +216,28 @@ separate `unclassifiedCode=error` / AARC010 policy.
 The implementation rationale and migration examples are recorded in
 [`allowed-dependencies-design.md`](allowed-dependencies-design.md).
 
+### Declared dependency DAG enforcement
+
+Schema v4 can require the explicit positive dependency-policy graph to be acyclic:
+
+```json
+"dependencyGraph": {
+  "requireAcyclic": true
+}
+```
+
+The graph contains only edges explicitly listed in `allowedDependencies`. It does not infer
+edges from current source references, and `forbiddenDependencies` are constraints rather than
+positive graph edges, so they do not create graph edges.
+
+When DAG enforcement is enabled, each cyclic strongly connected component produces one
+deterministic AARC011 path such as `Application -> Domain -> Shared -> Application`. An explicit
+self-edge such as `Domain -> Domain` is also a cycle. Multiple possible simple cycles inside one
+SCC do not explode into many diagnostics: one canonical cycle is chosen for that component.
+
+The full rationale and deterministic selection rules are recorded in
+[`dependency-cycle-design.md`](dependency-cycle-design.md).
+
 The containing type's layer for `interopBoundaryRules` is resolved with the same
 attribute-aware rule as AARC002/AARC003: a marker attribute on the type or any enclosing type
 wins over the namespace, and unclassified code is never the allowed layer.
@@ -216,18 +245,22 @@ wins over the namespace, and unclassified code is never the allowed layer.
 ### Schema compatibility policy
 
 Schema **v1** is the first explicit public Architecture Contract schema; schema **v2** adds the
-optional `unclassifiedCode` coverage policy, and schema **v3** adds positive dependency
-allowlists through `allowedDependencies`.
+optional `unclassifiedCode` coverage policy, schema **v3** adds positive dependency allowlists
+through `allowedDependencies`, and schema **v4** adds declared-graph DAG enforcement through
+`dependencyGraph.requireAcyclic`.
 
 - A contract with `"schemaVersion": 1` is parsed as v1.
 - A contract with `"schemaVersion": 2` is parsed as v2.
 - A contract with `"schemaVersion": 3` is parsed as v3.
+- A contract with `"schemaVersion": 4` is parsed as v4.
 - A versionless contract is parsed as v1 during the 0.x release line so existing consumers do not
   break merely because versioning was introduced.
 - `unclassifiedCode` is valid in v2 and later. Supplying it to a v1/versionless contract is
   rejected instead of being silently ignored.
 - `allowedDependencies` is valid only in v3 and later. Supplying it to a v1/v2/versionless
   contract is rejected instead of being silently ignored.
+- `dependencyGraph` is valid only in v4 and later. Supplying it to an older schema is rejected
+  instead of silently ignoring a DAG requirement.
 - If `schemaVersion` is present it must appear exactly once and be an integer. Duplicate
   `schemaVersion` properties are ambiguous and rejected before either value is interpreted;
   `null`, strings and fractional numbers are invalid rather than treated as versionless.
@@ -243,7 +276,7 @@ allowlists through `allowedDependencies`.
   rejected as a contradictory rule instead of relying on declaration order.
 
 The compatibility guarantee is intentionally asymmetric: current analyzers keep accepting
-versionless/v1/v2/v3 contracts, while future-version contracts fail closed on older analyzers.
+versionless/v1/v2/v3/v4 contracts, while future-version contracts fail closed on older analyzers.
 
 ### Validation rules
 
@@ -258,7 +291,12 @@ included verbatim in the diagnostic message.
 | The root is not a JSON object | `the contract root must be a JSON object` |
 | `schemaVersion` appears more than once | `property 'schemaVersion' must not appear more than once` |
 | `schemaVersion` is present but is not an integer | `property 'schemaVersion' must be an integer when present` |
-| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersions are 1 through 3` |
+| `schemaVersion` is not supported | `unsupported schemaVersion 'N'; supported schemaVersions are 1 through 4` |
+| `dependencyGraph` is used before schema v4 | `property 'dependencyGraph' requires schemaVersion 4` |
+| `dependencyGraph` appears more than once | `property 'dependencyGraph' must not appear more than once` |
+| `dependencyGraph` is not an object | `property 'dependencyGraph' must be a JSON object` |
+| `dependencyGraph.requireAcyclic` appears more than once | `property 'requireAcyclic' must not appear more than once in dependencyGraph` |
+| `dependencyGraph.requireAcyclic` is not boolean | `property 'requireAcyclic' of dependencyGraph must be a boolean when present` |
 | `allowedDependencies` is used before schema v3 | `property 'allowedDependencies' requires schemaVersion 3` |
 | `allowedDependencies` appears more than once | `property 'allowedDependencies' must not appear more than once` |
 | `allowedDependencies` is not an array | `property 'allowedDependencies' must be a JSON array` |
@@ -383,6 +421,7 @@ incrementally can remain on v1 or use `"ignore"` until their namespace coverage 
 | AARC007 | `RegisterSyntaxNodeAction(MethodDeclaration)`, registered only when `interopBoundaryRules` is non-empty | Each method's attributes and the layer of its containing type |
 | AARC008 / AARC009 | `RegisterCompilationEndAction` | Invalid or unknown operational options; reported once per offending key, `Location.None` |
 | AARC010 | `RegisterSymbolAction(SymbolKind.NamedType)`, only when `unclassifiedCode=error` | Applicable source types after marker-attribute + namespace classification and operational exclusions |
+| AARC011 | Contract-graph computation at compilation start + `RegisterCompilationEndAction` | Explicit `allowedDependencies` edges only; one canonical cycle per cyclic SCC, `Location.None` |
 
 AARC002 de-duplicates on `"{sourceType}->{targetType}"` for the whole compilation, so a Domain
 type that touches the same Application type in twenty places produces one error, not twenty.
@@ -407,7 +446,7 @@ under `analyzers/dotnet/cs`, so a plain `PackageReference` loads it as an analyz
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.0.1" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.1.0" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
 </ItemGroup>
 ```
@@ -438,12 +477,13 @@ Because the diagnostics are `Error` and `EnabledByDefault`, no further wiring is
 
 | Path | Role |
 |---|---|
-| `src/ArchitectureAnalyzer/ArchitectureContractAnalyzer.cs` | The `DiagnosticAnalyzer`: contract discovery, dependency direction, forbidden APIs, declaration rules, interop boundaries |
-| `src/ArchitectureAnalyzer/Diagnostics/ArchitectureDiagnostics.cs` | The `DiagnosticDescriptor`s for AARC001–AARC010 |
+| `src/ArchitectureAnalyzer/ArchitectureContractAnalyzer.cs` | The `DiagnosticAnalyzer`: contract discovery, dependency direction, forbidden APIs, declaration rules, interop boundaries and compilation-end graph diagnostics |
+| `src/ArchitectureAnalyzer/Diagnostics/ArchitectureDiagnostics.cs` | The `DiagnosticDescriptor`s for AARC001–AARC011 |
 | `src/ArchitectureAnalyzer/Configuration/ConfigReader.cs` | Operational option keys, parsing and AARC008 reporting — the source of truth behind [`configuration.md`](configuration.md) |
 | `src/ArchitectureAnalyzer/Configuration/OperationalConfig.cs` | The typed, immutable resolved option set with its hardcoded defaults |
 | `src/ArchitectureAnalyzer/Contract/ArchitectureContract.cs` | Immutable contract model and layer resolution |
 | `src/ArchitectureAnalyzer/Contract/ArchitectureContractLoader.cs` | JSON parsing and schema validation — deliberately free of Roslyn types so it is unit-testable, and reusable by future non-compiler tooling |
+| `src/ArchitectureAnalyzer/Contract/DependencyCycleDetector.cs` | Deterministic SCC/canonical-cycle detection over explicit positive dependency policy |
 | `src/ArchitectureAnalyzer.Tests` | `Microsoft.CodeAnalysis.Testing`-based analyzer tests plus direct loader unit tests |
 | `tests/GateVerification` | A real `dotnet build` proof that a violation fails a genuine build |
 
