@@ -42,7 +42,8 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         ArchitectureDiagnostics.InteropBoundaryViolation,
         ArchitectureDiagnostics.ArchitectureCoverageGap,
         ArchitectureDiagnostics.DeclaredDependencyCycle,
-        ArchitectureDiagnostics.ArchitectureBaselineInvalid);
+        ArchitectureDiagnostics.ArchitectureBaselineInvalid,
+        ArchitectureDiagnostics.ArchitectureBaselineCapture);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -275,6 +276,16 @@ context.RegisterOperationBlockAction(blockContext =>
             {
                 context.ReportDiagnostic(diagnostic);
             }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.DeclaredDependencyCycle,
+                Location.None,
+                cyclePath);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
     }
 
@@ -424,6 +435,16 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
             {
                 context.ReportDiagnostic(diagnostic);
             }
+
+            var capture = BaselineDiagnostic.CreateCapture(
+                baseline,
+                ArchitectureDiagnostics.ForbiddenLayerDependency,
+                earliest.Location,
+                earliest.BaselineKey);
+            if (capture is not null)
+            {
+                context.ReportDiagnostic(capture);
+            }
         }
 
         reported.Clear();
@@ -555,6 +576,16 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
                     if (diagnostic is not null)
                     {
                         context.ReportDiagnostic(diagnostic);
+                    }
+
+                    var capture = BaselineDiagnostic.CreateCapture(
+                        baseline,
+                        ArchitectureDiagnostics.ForbiddenApiUsage,
+                        location,
+                        baselineKey);
+                    if (capture is not null)
+                    {
+                        context.ReportDiagnostic(capture);
                     }
                 }
             }
