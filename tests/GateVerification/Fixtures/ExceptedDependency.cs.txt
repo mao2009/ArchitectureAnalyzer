@@ -1,0 +1,17 @@
+// Stored as .cs.txt so verify-gate.sh controls when the exception case is compiled.
+using SampleConsumer.Application;
+
+namespace SampleConsumer.Domain;
+
+/// <summary>
+/// Deliberate Domain -> Application exception declared exactly in architecture.contract.json.
+/// </summary>
+public sealed class ExceptionBridge
+{
+    /// <summary>Uses the legacy application service through the reviewed exception.</summary>
+    public string Describe(DomainEntity entity)
+    {
+        var service = new AppService();
+        return service.Describe(entity);
+    }
+}
