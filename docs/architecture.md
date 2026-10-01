@@ -30,8 +30,9 @@ dotnet build fails                  (d) locally, in the IDE, and in CI - the sam
    for the whole compilation. If the file is absent, the analyzer registers nothing further and
    is a complete no-op — enforcement is opt-in per project.
 3. **(c)** With a valid contract, further actions are registered: a syntax-node action over
-   `IdentifierName`/`GenericName` for dependency direction (AARC002) and an operation-block
-   action for forbidden APIs (AARC003), plus — only when the corresponding contract section is
+   `IdentifierName`/`GenericName` for dependency direction (AARC002, including schema-v3
+   positive allowlists) and an operation-block action for forbidden APIs (AARC003), plus — only
+   when the corresponding contract section is
    present — a symbol action over named types for the declaration rules (AARC004/AARC005/AARC006)
    and a syntax-node action over method declarations for interop boundaries (AARC007). Schema-v2
    strict coverage adds another named-type action for AARC010. A contract that fails to load
