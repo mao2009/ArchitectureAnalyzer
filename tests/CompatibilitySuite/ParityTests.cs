@@ -68,8 +68,10 @@ public sealed class ParityTests
         // Violation detected / valid stays clean, asserted on both sides independently of the diff.
         if (fixture.Kind == FixtureKind.Valid)
         {
+            // AARC may only add findings on a clean scenario when that difference is declared;
+            // AssertDeclaredDivergence below pins it exactly.
             Assert.True(
-                result.Psxr.IsEmpty && result.Aarc.IsEmpty,
+                result.Psxr.IsEmpty && (result.Aarc.IsEmpty || fixture.Divergence.AarcOnly.Length > 0),
                 $"{fixture.Id} is a clean scenario but produced findings.\n{result.Describe()}");
         }
         else

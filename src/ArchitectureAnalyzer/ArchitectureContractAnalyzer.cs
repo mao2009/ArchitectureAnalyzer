@@ -338,16 +338,20 @@ context.RegisterOperationBlockAction(blockContext =>
         }
 
         var name = (SimpleNameSyntax)context.Node;
-        if (name.FirstAncestorOrSelf<AttributeSyntax>() is not null)
-        {
-            return;
-        }
-
         var semanticModel = context.SemanticModel;
         var cancellationToken = context.CancellationToken;
 
         var targetType = ResolveReferencedType(name, semanticModel, cancellationToken);
         if (targetType is null)
+        {
+            return;
+        }
+
+        // A recognized layer marker applied as an attribute is the layer declaration itself, not a
+        // dependency. Every other attribute type, argument, typeof operand and named argument is a
+        // real source-level reference (#71).
+        if (name.FirstAncestorOrSelf<AttributeSyntax>() is not null
+            && contract.ResolveMarkerLayer(targetType.ToDisplayString()) is not null)
         {
             return;
         }
@@ -1070,9 +1074,11 @@ private static void AnalyzeLayerDeclaration(
     {
         foreach (var ancestor in node.Ancestors())
         {
-            if (ancestor is TypeDeclarationSyntax typeDeclaration)
+            // Classes, structs, records, interfaces, enums and delegates are all source types, so a
+            // delegate declared directly in a namespace is attributed to its own layer (#71).
+            if (ancestor is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
             {
-                if (semanticModel.GetDeclaredSymbol(typeDeclaration, cancellationToken) is { } type)
+                if (semanticModel.GetDeclaredSymbol(ancestor, cancellationToken) is INamedTypeSymbol type)
                 {
                     return (type, ResolveLayer(type, contract));
                 }
