@@ -128,7 +128,9 @@ AARC007 reads no operational property at all — use the standard severity key t
   participate in strict coverage.
 
 Generated paths are recognized by file path: anything ending in `.g.cs`, `.g.i.cs`, `.designer.cs`
-or `.generated.cs`, or living under an `obj/` or `bin/` directory. Roslyn's own
+or `.generated.cs`, or living under an `obj/` or `bin/` directory *inside the project directory*
+(`build_property.ProjectDir`; directories above the project, such as the checkout location, are
+never considered, and files outside the project directory get no `bin/`/`obj/` verdict). Roslyn's own
 `GeneratedCodeAnalysisFlags.None` exclusion applies on top of that and is not configurable.
 
 ### 3.3 Precedence
