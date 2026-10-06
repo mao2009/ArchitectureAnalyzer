@@ -208,13 +208,13 @@ no submodule checkout, no extra credentials and no external repository access we
 
 ## 6. Results
 
-**57/57 scenarios accounted for. 56 equivalent, 1 classified difference, 0 unknown.**
+**57/57 scenarios accounted for. 55 equivalent, 2 classified differences, 0 unknown.**
 
 | Classification | Count | Fixtures |
 |---|---:|---|
-| Equivalent | 56 | all except the one below |
+| Equivalent | 55 | all except the two below |
 | Capability regression | 0 | — |
-| Intentional improvement | 0 | — |
+| Intentional improvement | 1 | F-D06 |
 | Harmless presentation difference | 1 | F-I03 |
 | Baseline bug | 0 | — |
 | Unknown / unexplained | **0** | — |
@@ -249,6 +249,16 @@ That test now asserts the *empty* set — any blind spot fails the build immedia
 | AARC | one finding, `(10,34)` |
 | Cause | PSXR006 runs per `MethodDeclaration` with no de-duplication (baseline document D5); AARC007 de-duplicates on `(method, attribute)` and reports at the part carrying the attribute. |
 | Classification | **Harmless presentation difference.** The same fault is reported, once instead of twice, at a deterministic location. Nothing becomes invisible; AARC's behaviour is preferable. |
+
+### 6.2a F-D06 — intentional improvement (#71)
+
+| | |
+|---|---|
+| Scenario | `[Application] class AppMarkerAttribute : Attribute {}` applied as `[AppMarker]` to a method of a `[Domain]` class |
+| PSXR | nothing — PSXR004 returns for every name with an `AttributeSyntax` ancestor |
+| AARC | `ForbiddenDependency` `Scenario.DomainConsumer` (Domain) -> `Scenario.AppMarkerAttribute` (Application) |
+| Cause | [#71](https://github.com/mao2009/ArchitectureAnalyzer/issues/71): the attribute type, its constructor/named arguments and `typeof` operands are real source-level dependencies. Only a recognized `layerDeclaration` marker attribute is exempt, because applying it is the layer declaration itself. |
+| Classification | **Intentional improvement.** The scenario stays clean for the baseline; AARC reports one additional, real layer violation. |
 
 ### 6.3 Operational-toggle coverage
 

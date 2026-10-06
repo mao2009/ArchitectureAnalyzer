@@ -496,4 +496,162 @@ public sealed class ForbiddenDependencyTests
 
         await test.RunAsync();
     }
+
+    // #71: delegates and attribute references are source-level dependencies of the enclosing
+    // declaration. Each scenario places a single line at line 18 of this fixture.
+    private const string DelegateAndAttributeFixture = """
+        namespace Sample.Application
+        {
+            public class AppService { }
+            public sealed class AppAttribute : System.Attribute { }
+            public static class AppConstants { public const int Code = 1; }
+        }
+
+        namespace Sample.Domain
+        {
+            using Sample.Application;
+
+            public sealed class TagAttribute : System.Attribute
+            {
+                public TagAttribute() { }
+                public TagAttribute(object value) { }
+                public object Value { get; set; }
+            }
+        SCENARIO
+        }
+        """;
+
+    [Fact]
+    public async Task TopLevelDelegateReturnType_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    public delegate Sample.Application.AppService Make();",
+            40,
+            "Sample.Domain.Make",
+            "Sample.Application.AppService");
+    }
+
+    [Fact]
+    public async Task TopLevelDelegateParameter_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    public delegate void Callback(Sample.Application.AppService service);",
+            54,
+            "Sample.Domain.Callback",
+            "Sample.Application.AppService");
+    }
+
+    [Fact]
+    public async Task GenericDelegateConstraint_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    public delegate T Factory<T>() where T : Sample.Application.AppService;",
+            65,
+            "Sample.Domain.Factory<T>",
+            "Sample.Application.AppService");
+    }
+
+    [Fact]
+    public async Task NestedDelegate_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    public class Holder { public delegate Sample.Application.AppService Nested(); }",
+            62,
+            "Sample.Domain.Holder.Nested",
+            "Sample.Application.AppService");
+    }
+
+    [Fact]
+    public async Task EnumMemberInitializer_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    public enum Level { Low = AppConstants.Code }",
+            31,
+            "Sample.Domain.Level",
+            "Sample.Application.AppConstants");
+    }
+
+    [Fact]
+    public async Task AttributeShortName_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [App] public class Marked { }",
+            6,
+            "Sample.Domain.Marked",
+            "Sample.Application.AppAttribute");
+    }
+
+    [Fact]
+    public async Task AttributeFullName_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [AppAttribute] public class Marked { }",
+            6,
+            "Sample.Domain.Marked",
+            "Sample.Application.AppAttribute");
+    }
+
+    [Fact]
+    public async Task AttributeNamespaceQualifiedName_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [Sample.Application.App] public class Marked { }",
+            25,
+            "Sample.Domain.Marked",
+            "Sample.Application.AppAttribute");
+    }
+
+    [Fact]
+    public async Task AttributeTypeofArgument_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [Tag(typeof(AppService))] public class Typed { }",
+            17,
+            "Sample.Domain.Typed",
+            "Sample.Application.AppService");
+    }
+
+    [Fact]
+    public async Task AttributeConstructorArgument_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [Tag(AppConstants.Code)] public class Positional { }",
+            10,
+            "Sample.Domain.Positional",
+            "Sample.Application.AppConstants");
+    }
+
+    [Fact]
+    public async Task AttributeNamedArgument_ReportsForbiddenDependency()
+    {
+        await RunDelegateOrAttributeScenarioAsync(
+            "    [Tag(Value = AppConstants.Code)] public class Named { }",
+            18,
+            "Sample.Domain.Named",
+            "Sample.Application.AppConstants");
+    }
+
+    private static async Task RunDelegateOrAttributeScenarioAsync(
+        string scenarioLine,
+        int column,
+        string source,
+        string target)
+    {
+        var test = new ArchitectureAnalyzerTest(Contract)
+        {
+            TestCode = DelegateAndAttributeFixture.Replace("SCENARIO", scenarioLine),
+        };
+
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.Expect(
+            ArchitectureDiagnostics.ForbiddenLayerDependency,
+            18,
+            column,
+            source,
+            "Domain",
+            target,
+            "Application",
+            Reason));
+
+        await test.RunAsync();
+    }
 }

@@ -349,11 +349,6 @@ context.RegisterOperationBlockAction(blockContext =>
         }
 
         var name = (SimpleNameSyntax)context.Node;
-        if (name.FirstAncestorOrSelf<AttributeSyntax>() is not null)
-        {
-            return;
-        }
-
         // XML doc references (cref, inheritdoc, seealso) are not code dependencies, and Roslyn only
         // binds them when DocumentationMode >= Parse (e.g. GenerateDocumentationFile=true), so
         // counting them would make AARC002 depend on build configuration (#70).
@@ -367,6 +362,15 @@ context.RegisterOperationBlockAction(blockContext =>
 
         var targetType = ResolveReferencedType(name, semanticModel, cancellationToken);
         if (targetType is null)
+        {
+            return;
+        }
+
+        // A recognized layer marker applied as an attribute is the layer declaration itself, not a
+        // dependency. Only the attribute's own type name is exempt: every other attribute type,
+        // constructor/named argument and typeof operand (even of a marker type) is a real
+        // source-level reference (#71).
+        if (IsAttributeTypeName(name) && contract.ResolveMarkerLayer(targetType.ToDisplayString()) is not null)
         {
             return;
         }
@@ -1110,9 +1114,11 @@ private static void AnalyzeLayerDeclaration(
     {
         foreach (var ancestor in node.Ancestors())
         {
-            if (ancestor is TypeDeclarationSyntax typeDeclaration)
+            // Classes, structs, records, interfaces, enums and delegates are all source types, so a
+            // delegate declared directly in a namespace is attributed to its own layer (#71).
+            if (ancestor is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
             {
-                if (semanticModel.GetDeclaredSymbol(typeDeclaration, cancellationToken) is { } type)
+                if (semanticModel.GetDeclaredSymbol(ancestor, cancellationToken) is INamedTypeSymbol type)
                 {
                     return (type, ResolveLayer(type, contract));
                 }
@@ -1222,6 +1228,24 @@ private static void AnalyzeLayerDeclaration(
 
         var separator = path.LastIndexOfAny(new[] { '/', '\\' });
         return separator < 0 ? path : path.Substring(separator + 1);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="name"/> is the type name of an attribute application itself
+    /// (<c>[Domain]</c>, <c>[A.B.DomainAttribute]</c>), as opposed to a name inside its arguments.
+    /// </summary>
+    private static bool IsAttributeTypeName(SimpleNameSyntax name)
+    {
+        var attribute = name.FirstAncestorOrSelf<AttributeSyntax>();
+        SimpleNameSyntax? typeName = attribute?.Name switch
+        {
+            QualifiedNameSyntax qualified => qualified.Right,
+            AliasQualifiedNameSyntax aliased => aliased.Name,
+            SimpleNameSyntax simple => simple,
+            _ => null,
+        };
+
+        return typeName is not null && typeName == name;
     }
 
     private static bool IsGeneratedPath(string? path, string? projectDir)

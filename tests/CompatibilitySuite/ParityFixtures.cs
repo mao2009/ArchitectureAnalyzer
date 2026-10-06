@@ -433,7 +433,7 @@ public static class ParityFixtures
             }
             """));
 
-        fixtures.Add(Valid("F-D06", ParityCategory.ForbiddenDependency, $$"""
+        fixtures.Add(new ParityFixture("F-D06", FixtureKind.Valid, ParityCategory.ForbiddenDependency, Sources(("/0/Test0.cs", $$"""
             {{Using}}
 
             namespace Scenario;
@@ -451,7 +451,15 @@ public static class ParityFixtures
                 {
                 }
             }
-            """));
+            """)),
+            new ExpectedDivergence(
+                DivergenceClass.IntentionalImprovement,
+                PsxrOnly: "",
+                AarcOnly: nameof(ParityCategory.ForbiddenDependency),
+                Note: "#71: PSXR004 skips every name under an AttributeSyntax, so applying an "
+                    + "Application-layer attribute type inside the Domain layer is invisible to it. "
+                    + "AARC002 treats the attribute type, its arguments, typeof operands and named "
+                    + "arguments as real dependencies; only recognized layer marker attributes are exempt.")));
 
         fixtures.Add(Violation("F-D07", ParityCategory.ForbiddenDependency, $$"""
             {{Using}}
