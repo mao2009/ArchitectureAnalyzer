@@ -61,7 +61,44 @@ public sealed class GeneratedPathTests
         Assert.DoesNotContain(diagnostics, d => d.Id == ArchitectureDiagnostics.ForbiddenLayerDependency.Id);
     }
 
-    private static async Task<ImmutableArray<Diagnostic>> RunAsync(string projectDir, string domainPath)
+    private const string Include = "dotnet_diagnostic.AARC002.architecture_analyzer.generated_code";
+    private const string SkipFlag = "dotnet_diagnostic.AARC002.architecture_analyzer.skip_generated_code";
+
+    [Theory]
+    [InlineData("/bin/project/", "/bin/project/Domain/D.cs", Include, "include")]
+    [InlineData("/obj/project/", "/obj/project/Domain/D.cs", SkipFlag, "false")]
+    [InlineData(@"C:\work\bin\repo\project\", @"C:\work\bin\repo\project\Domain\D.cs", Include, "include")]
+    [InlineData(@"C:\work\obj\repo\project\", @"C:\work\obj\repo\project\Domain\D.cs", SkipFlag, "false")]
+    public async Task AncestorBinOrObj_WithGeneratedCodeInclude_IsAnalyzed(string projectDir, string path, string key, string value)
+    {
+        var diagnostics = await RunAsync(projectDir, path, (key, value));
+
+        Assert.Contains(diagnostics, d => d.Id == ArchitectureDiagnostics.ForbiddenLayerDependency.Id);
+    }
+
+    [Theory]
+    [InlineData("/repo/project/", "/repo/project/bin/Generated.cs", Include, "include")]
+    [InlineData("/repo/project/", "/repo/project/obj/Generated.cs", SkipFlag, "false")]
+    [InlineData("/obj/project/", "/obj/project/bin/Generated.cs", Include, "include")]
+    public async Task FileUnderProjectBinOrObj_WithGeneratedCodeInclude_IsAnalyzed(string projectDir, string path, string key, string value)
+    {
+        var diagnostics = await RunAsync(projectDir, path, (key, value));
+
+        Assert.Contains(diagnostics, d => d.Id == ArchitectureDiagnostics.ForbiddenLayerDependency.Id);
+    }
+
+    [Fact]
+    public async Task FileUnderProjectObj_WithAncestorBin_IsStillExcludedByDefault()
+    {
+        var diagnostics = await RunAsync("/bin/project/", "/bin/project/obj/Generated.cs");
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == ArchitectureDiagnostics.ForbiddenLayerDependency.Id);
+    }
+
+    private static async Task<ImmutableArray<Diagnostic>> RunAsync(
+        string projectDir,
+        string domainPath,
+        params (string Key, string Value)[] extraOptions)
     {
         var references = await ReferenceAssemblies.Net.Net90.ResolveAsync(LanguageNames.CSharp, CancellationToken.None);
         var appPath = projectDir.Replace('\\', '/').TrimEnd('/') + "/App/Svc.cs";
@@ -79,7 +116,10 @@ public sealed class GeneratedPathTests
         var options = new AnalyzerOptions(
             ImmutableArray.Create<AdditionalText>(
                 new InMemoryAdditionalText(projectDir + ArchitectureContractAnalyzer.ContractFileName, Contract)),
-            new GlobalOptionsProvider(new Dictionary<string, string> { ["build_property.ProjectDir"] = projectDir }));
+            new GlobalOptionsProvider(
+                new Dictionary<string, string> { ["build_property.ProjectDir"] = projectDir }
+                    .Concat(extraOptions.Select(o => new KeyValuePair<string, string>(o.Key, o.Value)))
+                    .ToDictionary(p => p.Key, p => p.Value)));
 
         return await compilation
             .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ArchitectureContractAnalyzer()), options)
