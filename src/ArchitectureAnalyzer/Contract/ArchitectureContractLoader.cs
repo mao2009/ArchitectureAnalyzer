@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 
 namespace ArchitectureAnalyzer.Contract;
@@ -96,11 +97,11 @@ public static class ArchitectureContractLoader
 
         using (document)
         {
-            return LoadCore(document.RootElement);
+            return LoadCore(document.RootElement, json);
         }
     }
 
-    private static ArchitectureContractLoadResult LoadCore(JsonElement root)
+    private static ArchitectureContractLoadResult LoadCore(JsonElement root, string json)
     {
         if (root.ValueKind != JsonValueKind.Object)
         {
@@ -112,6 +113,12 @@ public static class ArchitectureContractLoader
         if (schemaVersionResult.Error is not null)
         {
             return ArchitectureContractLoadResult.Failure(schemaVersionResult.Error);
+        }
+
+        var unknownPropertyError = FindUnknownProperty(json);
+        if (unknownPropertyError is not null)
+        {
+            return ArchitectureContractLoadResult.Failure(unknownPropertyError);
         }
 
         var unclassifiedCodeResult = ReadUnclassifiedCode(root, schemaVersionResult.Version);
@@ -900,6 +907,185 @@ var layerDeclarationResult = ReadLayerDeclaration(root, declaredLayers);
             _ => (UnclassifiedCodePolicy.Ignore,
                 "property 'unclassifiedCode' must be 'ignore' or 'error'"),
         };
+    }
+
+    /// <summary>
+    /// Every property the loader understands, keyed by the schema position of the object that
+    /// holds it (<c>""</c> is the root, <c>[]</c> marks an array entry). Objects whose position is
+    /// not listed (for example the value of a tolerated <c>$</c>/<c>x-</c> key) are not checked.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> KnownProperties = new(StringComparer.Ordinal)
+    {
+        [""] = new[]
+        {
+            "schemaVersion", "unclassifiedCode", "layers", "forbiddenDependencies", "allowedDependencies",
+            "dependencyGraph", "exceptions", "forbiddenApis", "layerDeclaration", "interopBoundaryRules",
+        },
+        ["layers[]"] = new[] { "name", "namespaceRoots" },
+        ["forbiddenDependencies[]"] = new[] { "from", "to", "reason" },
+        ["allowedDependencies[]"] = new[] { "from", "to", "reason" },
+        ["dependencyGraph"] = new[] { "requireAcyclic" },
+        ["exceptions[]"] = new[] { "diagnosticId", "sourceType", "targetType", "apiType", "member", "justification" },
+        ["forbiddenApis[]"] = new[] { "layer", "type", "member", "wholeType", "reason" },
+        ["layerDeclaration"] = new[] { "required", "validateNamespaceConsistency", "markerNamespace", "markerAttributes" },
+        ["layerDeclaration.markerAttributes[]"] = new[] { "attributeFqn", "layer" },
+        ["interopBoundaryRules[]"] = new[] { "attribute", "allowedLayer", "reason" },
+    };
+
+    private sealed class JsonFrame
+    {
+        public JsonFrame(string? schema, string path, bool isArray)
+        {
+            Schema = schema;
+            Path = path;
+            IsArray = isArray;
+        }
+
+        public string? Schema { get; }
+
+        public string Path { get; }
+
+        public bool IsArray { get; }
+
+        public int Index { get; set; }
+    }
+
+    /// <summary>
+    /// Rejects the first property the loader does not understand. Within a supported
+    /// schemaVersion an unknown key is a typo that would otherwise silently drop a rule, so it
+    /// fails closed. Keys starting with <c>$</c> or <c>x-</c> are reserved for metadata.
+    /// </summary>
+    private static string? FindUnknownProperty(string json)
+    {
+        var bytes = Encoding.UTF8.GetBytes(json);
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+        var stack = new Stack<JsonFrame>();
+        string? propertyName = null;
+
+        while (reader.Read())
+        {
+            var parent = stack.Count == 0 ? null : stack.Peek();
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.PropertyName:
+                    propertyName = reader.GetString()!;
+                    if (parent!.Schema is not null
+                        && KnownProperties.TryGetValue(parent.Schema, out var known)
+                        && Array.IndexOf(known, propertyName) < 0
+                        && !propertyName.StartsWith("$", StringComparison.Ordinal)
+                        && !propertyName.StartsWith("x-", StringComparison.Ordinal))
+                    {
+                        return DescribeUnknownProperty(
+                            bytes, (int)reader.TokenStartIndex, parent.Path + "." + propertyName, propertyName, known);
+                    }
+
+                    break;
+
+                case JsonTokenType.StartObject:
+                case JsonTokenType.StartArray:
+                    string? schema;
+                    string path;
+                    if (parent is null)
+                    {
+                        (schema, path) = ("", "$");
+                    }
+                    else if (parent.IsArray)
+                    {
+                        schema = parent.Schema is null ? null : parent.Schema + "[]";
+                        path = parent.Path + "[" + parent.Index++ + "]";
+                    }
+                    else
+                    {
+                        schema = parent.Schema is null ? null
+                            : parent.Schema.Length == 0 ? propertyName : parent.Schema + "." + propertyName;
+                        path = parent.Path + "." + propertyName;
+                    }
+
+                    stack.Push(new JsonFrame(schema, path, reader.TokenType == JsonTokenType.StartArray));
+                    break;
+
+                case JsonTokenType.EndObject:
+                case JsonTokenType.EndArray:
+                    stack.Pop();
+                    break;
+
+                default:
+                    if (parent is { IsArray: true })
+                    {
+                        parent.Index++;
+                    }
+
+                    break;
+            }
+        }
+
+        return null;
+    }
+
+    private static string DescribeUnknownProperty(
+        byte[] bytes,
+        int offset,
+        string path,
+        string propertyName,
+        string[] known)
+    {
+        var line = 1;
+        var lineStart = 0;
+        for (var i = 0; i < offset; i++)
+        {
+            if (bytes[i] == (byte)'\n')
+            {
+                line++;
+                lineStart = i + 1;
+            }
+        }
+
+        var column = Encoding.UTF8.GetCharCount(bytes, lineStart, offset - lineStart) + 1;
+        var message = $"unknown property '{propertyName}' at {path} (line {line}, column {column})";
+
+        string? suggestion = null;
+        var bestDistance = int.MaxValue;
+        foreach (var candidate in known)
+        {
+            var distance = EditDistance(propertyName.ToLowerInvariant(), candidate.ToLowerInvariant());
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                suggestion = candidate;
+            }
+        }
+
+        return bestDistance <= Math.Max(2, propertyName.Length / 3)
+            ? message + $"; did you mean '{suggestion}'?"
+            : message + "; prefix metadata keys with '$' or 'x-'";
+    }
+
+    private static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        var current = new int[b.Length + 1];
+        for (var j = 0; j <= b.Length; j++)
+        {
+            previous[j] = j;
+        }
+
+        for (var i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[b.Length];
     }
 
     private static string UndeclaredLayer(string layerName, string section)

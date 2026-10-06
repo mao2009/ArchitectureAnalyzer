@@ -103,10 +103,14 @@ declare the current `"schemaVersion": 5`; existing v1/v2/v3/v4 and versionless c
 `layers` is required; the other rule sections are optional and activate only the analyses that
 depend on them.
 
-Unknown properties inside a **supported schema version** are ignored, which permits additive
-metadata without changing rule semantics. A schema change that can affect interpretation must
-increment `schemaVersion`; an analyzer that does not understand that version rejects the whole
-contract with AARC001 instead of silently guessing.
+Unknown properties inside a **supported schema version** are rejected with AARC001: within a
+known version an unrecognized key can only be a typo (`forbiddenDependenices`, `namespaceRoot`,
+`requireAcylic`), and ignoring it would silently drop a rule. The message names the key, its JSON
+path, line and column, and the nearest known key when one is close. Keys starting with `$` or
+`x-` (for example `$schema`, `x-owner`) are reserved for metadata and are ignored together with
+everything nested under them. A schema change that can affect interpretation must increment
+`schemaVersion`; an analyzer that does not understand that version rejects the whole contract
+with AARC001 instead of silently guessing.
 
 | Section | Required | Activates |
 |---|---|---|
@@ -382,9 +386,9 @@ exceptions.
   `null`, strings and fractional numbers are invalid rather than treated as versionless.
 - An unsupported version is rejected with AARC001. In particular, an older analyzer must never
   silently interpret a future schema version using old semantics.
-- Additive metadata may be introduced as unknown properties without changing existing semantics;
-  unknown properties are ignored. Any new property whose interpretation changes architecture
-  enforcement must ship under a new schema version.
+- Additive metadata must use `$`- or `x-`-prefixed keys, which are ignored. Any other unknown
+  property is rejected with AARC001 rather than ignored, so a misspelled key can never silently
+  disable a rule. Any new property must ship under a new schema version.
 - Exact duplicate namespace roots and duplicate forbidden dependency edges are invalid. One
   namespace root therefore has exactly one owner and one forbidden edge has exactly one
   declaration.
@@ -542,7 +546,7 @@ incrementally can remain on v1 or use `"ignore"` until their namespace coverage 
 | Diagnostic | Roslyn hook | What it looks at |
 |---|---|---|
 | AARC001 | `RegisterCompilationStartAction` + `RegisterCompilationEndAction` | The contract file itself; reported once per compilation with `Location.None` |
-| AARC002 | `RegisterSyntaxNodeAction(IdentifierName, GenericName)` | The symbol each name binds to, its declaring type, and the nearest enclosing type declaration (class, struct, record, interface, enum or delegate, so a namespace-level delegate is its own source type); attribute type names, constructor and named arguments and `typeof` operands count as references, except a recognized `layerDeclaration` marker attribute |
+| AARC002 | `RegisterSyntaxNodeAction(IdentifierName, GenericName)` | The symbol each name binds to, its declaring type, and the nearest enclosing type declaration (class, struct, record, interface, enum or delegate, so a namespace-level delegate is its own source type); attribute type names, constructor and named arguments and `typeof` operands count as references, except a recognized `layerDeclaration` marker attribute applied as an attribute (its own type name only; the marker type inside another attribute's argument or `typeof` is still a reference); XML documentation comments (`cref` in `see`/`seealso`/`inheritdoc`, …) are skipped, so the result does not depend on `GenerateDocumentationFile`/`DocumentationMode` |
 | AARC003 | `RegisterOperationBlockAction` | Every `IInvocationOperation`, `IObjectCreationOperation` and `IMemberReferenceOperation` in the block |
 | AARC004 / AARC005 / AARC006 | `RegisterSymbolAction(SymbolKind.NamedType)`, registered only when the contract has a `layerDeclaration` | The class's own attributes, its containing-type chain and its namespace |
 | AARC007 | `RegisterSyntaxNodeAction(MethodDeclaration)`, registered only when `interopBoundaryRules` is non-empty | Each method's attributes and the layer of its containing type |

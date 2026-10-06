@@ -137,6 +137,11 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
 
         var contract = result.Contract!;
 
+        // Generated-path bin/obj segments are judged relative to the project directory so that
+        // where the checkout lives (for example under a parent directory named bin) never decides
+        // whether a file is analyzed (#68).
+        configProvider.GlobalOptions.TryGetValue("build_property.ProjectDir", out var projectDir);
+
         var baselineMode = ConfigReader.ReadBaselineMode(configProvider, configDiagnostics);
         var baseline = baselineMode == ConfigReader.BaselineMode.Ignore
             ? ArchitectureBaseline.Capturing
@@ -202,7 +207,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.LayerDeclaration is not null)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, baseline, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerDeclaration(symbolContext, contract, baseline, configProvider, configDiagnostics, projectDir),
                 SymbolKind.NamedType);
         }
 
@@ -212,7 +217,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
         if (contract.UnclassifiedCode == UnclassifiedCodePolicy.Error)
         {
             context.RegisterSymbolAction(
-                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, baseline, configProvider, configDiagnostics),
+                symbolContext => AnalyzeLayerCoverage(symbolContext, contract, baseline, configProvider, configDiagnostics, projectDir),
                 SymbolKind.NamedType);
         }
 
@@ -225,7 +230,7 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             nodeContext =>
             {
                 var treeConfig = ConfigReader.Read(configProvider, nodeContext.Node.SyntaxTree, configDiagnostics);
-                AnalyzeDependencyDirection(nodeContext, contract, reportedDependencies, treeConfig);
+                AnalyzeDependencyDirection(nodeContext, contract, reportedDependencies, treeConfig, projectDir);
             },
             SyntaxKind.IdentifierName,
             SyntaxKind.GenericName);
@@ -240,7 +245,7 @@ context.RegisterOperationBlockAction(blockContext =>
             var treeConfig = firstTree is not null
                 ? ConfigReader.Read(configProvider, firstTree, configDiagnostics)
                 : OperationalConfig.Default;
-            AnalyzeForbiddenApiUsage(blockContext, contract, baseline, treeConfig);
+            AnalyzeForbiddenApiUsage(blockContext, contract, baseline, treeConfig, projectDir);
         });
 
         // Interop-boundary enforcement is declaration-based (method attributes), which the
@@ -250,7 +255,7 @@ context.RegisterOperationBlockAction(blockContext =>
         {
             var reportedInterop = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
             context.RegisterSyntaxNodeAction(
-                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, baseline, reportedInterop),
+                nodeContext => AnalyzeInteropBoundary(nodeContext, contract, baseline, reportedInterop, projectDir),
                 SyntaxKind.MethodDeclaration);
         }
 
@@ -325,19 +330,28 @@ context.RegisterOperationBlockAction(blockContext =>
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
         ConcurrentDictionary<string, ConcurrentQueue<DependencyViolation>> reported,
-        OperationalConfig config)
+        OperationalConfig config,
+        string? projectDir)
     {
         if (!config.Enabled || !config.IsRuleEnabled("AARC002"))
         {
             return;
         }
 
-        if (config.SkipGeneratedCode && IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        if (config.SkipGeneratedCode && IsGeneratedPath(context.Node.SyntaxTree.FilePath, projectDir))
         {
             return;
         }
 
         var name = (SimpleNameSyntax)context.Node;
+        // XML doc references (cref, inheritdoc, seealso) are not code dependencies, and Roslyn only
+        // binds them when DocumentationMode >= Parse (e.g. GenerateDocumentationFile=true), so
+        // counting them would make AARC002 depend on build configuration (#70).
+        if (name.FirstAncestorOrSelf<DocumentationCommentTriviaSyntax>() is not null)
+        {
+            return;
+        }
+
         var semanticModel = context.SemanticModel;
         var cancellationToken = context.CancellationToken;
 
@@ -348,10 +362,10 @@ context.RegisterOperationBlockAction(blockContext =>
         }
 
         // A recognized layer marker applied as an attribute is the layer declaration itself, not a
-        // dependency. Every other attribute type, argument, typeof operand and named argument is a
-        // real source-level reference (#71).
-        if (name.FirstAncestorOrSelf<AttributeSyntax>() is not null
-            && contract.ResolveMarkerLayer(targetType.ToDisplayString()) is not null)
+        // dependency. Only the attribute's own type name is exempt: every other attribute type,
+        // constructor/named argument and typeof operand (even of a marker type) is a real
+        // source-level reference (#71).
+        if (IsAttributeTypeName(name) && contract.ResolveMarkerLayer(targetType.ToDisplayString()) is not null)
         {
             return;
         }
@@ -475,7 +489,8 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
         OperationBlockAnalysisContext context,
         ArchitectureContract contract,
         ArchitectureBaseline baseline,
-        OperationalConfig config)
+        OperationalConfig config,
+        string? projectDir)
     {
         if (!config.Enabled || !config.IsRuleEnabled("AARC003"))
         {
@@ -516,7 +531,7 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
 
         foreach (var block in context.OperationBlocks)
         {
-            if (config.SkipGeneratedCode && IsGeneratedPath(block.Syntax.SyntaxTree.FilePath))
+            if (config.SkipGeneratedCode && IsGeneratedPath(block.Syntax.SyntaxTree.FilePath, projectDir))
             {
                 continue;
             }
@@ -605,7 +620,8 @@ private static void AnalyzeLayerDeclaration(
         ArchitectureContract contract,
         ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
-        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics,
+        string? projectDir)
     {
         if (context.Symbol is not INamedTypeSymbol type
             || type.TypeKind != TypeKind.Class
@@ -623,7 +639,7 @@ private static void AnalyzeLayerDeclaration(
         // A generated declaration part must never mask a handwritten one (AARC004/005/006):
         // every part is scanned and the first non-generated part is the primary location. Only a
         // type whose parts are all generated is exempt from declaration checks (#42).
-        var primary = GetPrimaryNonGeneratedDeclaration(type);
+        var primary = GetPrimaryNonGeneratedDeclaration(type, projectDir);
         if (primary is null)
         {
             return;
@@ -745,7 +761,8 @@ private static void AnalyzeLayerDeclaration(
         ArchitectureContract contract,
         ArchitectureBaseline baseline,
         AnalyzerConfigOptionsProvider configProvider,
-        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics)
+        ConcurrentDictionary<string, (DiagnosticDescriptor Descriptor, Location Location, string Key, string Value)> configDiagnostics,
+        string? projectDir)
     {
         if (context.Symbol is not INamedTypeSymbol type
             || type.IsImplicitlyDeclared
@@ -770,7 +787,7 @@ private static void AnalyzeLayerDeclaration(
             var candidateConfig = ConfigReader.Read(configProvider, tree, configDiagnostics);
             if (!candidateConfig.Enabled
                 || !candidateConfig.IsRuleEnabled("AARC010")
-                || (candidateConfig.SkipGeneratedCode && IsGeneratedPath(tree.FilePath)))
+                || (candidateConfig.SkipGeneratedCode && IsGeneratedPath(tree.FilePath, projectDir)))
             {
                 continue;
             }
@@ -865,11 +882,11 @@ private static void AnalyzeLayerDeclaration(
     /// Mirrors PSXRecomp.Analyzer, which scans all declared parts so file order can never let a
     /// generated part swallow a handwritten type's compliance checks (#42).
     /// </summary>
-    private static Location? GetPrimaryNonGeneratedDeclaration(INamedTypeSymbol type)
+    private static Location? GetPrimaryNonGeneratedDeclaration(INamedTypeSymbol type, string? projectDir)
     {
         foreach (var location in type.Locations)
         {
-            if (location.SourceTree is null || IsGeneratedPath(location.SourceTree.FilePath))
+            if (location.SourceTree is null || IsGeneratedPath(location.SourceTree.FilePath, projectDir))
             {
                 continue;
             }
@@ -947,9 +964,10 @@ private static void AnalyzeLayerDeclaration(
         SyntaxNodeAnalysisContext context,
         ArchitectureContract contract,
         ArchitectureBaseline baseline,
-        ConcurrentDictionary<string, byte> reportedInterop)
+        ConcurrentDictionary<string, byte> reportedInterop,
+        string? projectDir)
     {
-        if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        if (IsGeneratedPath(context.Node.SyntaxTree.FilePath, projectDir))
         {
             return;
         }
@@ -1190,7 +1208,25 @@ private static void AnalyzeLayerDeclaration(
         return separator < 0 ? path : path.Substring(separator + 1);
     }
 
-    private static bool IsGeneratedPath(string? path)
+    /// <summary>
+    /// Whether <paramref name="name"/> is the type name of an attribute application itself
+    /// (<c>[Domain]</c>, <c>[A.B.DomainAttribute]</c>), as opposed to a name inside its arguments.
+    /// </summary>
+    private static bool IsAttributeTypeName(SimpleNameSyntax name)
+    {
+        var attribute = name.FirstAncestorOrSelf<AttributeSyntax>();
+        SimpleNameSyntax? typeName = attribute?.Name switch
+        {
+            QualifiedNameSyntax qualified => qualified.Right,
+            AliasQualifiedNameSyntax aliased => aliased.Name,
+            SimpleNameSyntax simple => simple,
+            _ => null,
+        };
+
+        return typeName is not null && typeName == name;
+    }
+
+    private static bool IsGeneratedPath(string? path, string? projectDir)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -1199,14 +1235,32 @@ private static void AnalyzeLayerDeclaration(
 
         var normalized = path!.Replace('\\', '/');
 
-        return normalized.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
+        if (normalized.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
             || normalized.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase)
             || normalized.EndsWith(".designer.cs", StringComparison.OrdinalIgnoreCase)
-            || normalized.EndsWith(".generated.cs", StringComparison.OrdinalIgnoreCase)
-            || normalized.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0
-            || normalized.IndexOf("/bin/", StringComparison.OrdinalIgnoreCase) >= 0
-            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase);
+            || normalized.EndsWith(".generated.cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // bin/obj segments count only below the project directory, so ancestors of the project
+        // (the checkout location) never decide the verdict (#68). A file outside the project
+        // directory gets no bin/obj verdict; Roslyn's auto-generated detection still applies.
+        // Without a known project directory (non-MSBuild hosts) the whole path is used.
+        var relative = "/" + normalized;
+        if (!string.IsNullOrWhiteSpace(projectDir))
+        {
+            var root = projectDir!.Trim().Replace('\\', '/').TrimEnd('/') + "/";
+            if (!normalized.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            relative = "/" + normalized.Substring(root.Length);
+        }
+
+        return relative.IndexOf("/obj/", StringComparison.OrdinalIgnoreCase) >= 0
+            || relative.IndexOf("/bin/", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 }
 
