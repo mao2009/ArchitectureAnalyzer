@@ -53,7 +53,11 @@ public sealed class ArchitectureContractAnalyzer : DiagnosticAnalyzer
             throw new ArgumentNullException(nameof(context));
         }
 
-        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        // The driver must hand generated code to the analyzer so generated_code / skip_generated_code
+        // can opt in to it (#69). Exclusion lives in the analyzer instead (IsGeneratedCodeTree and
+        // the [GeneratedCode] checks), which reproduces the driver's former default skipping.
+        context.ConfigureGeneratedCodeAnalysis(
+            GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
         context.EnableConcurrentExecution();
 
         context.RegisterCompilationStartAction(OnCompilationStart);
@@ -332,7 +336,8 @@ context.RegisterOperationBlockAction(blockContext =>
             return;
         }
 
-        if (config.SkipGeneratedCode && IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        if (config.SkipGeneratedCode
+            && IsGeneratedCodeTree(context.Node.SyntaxTree, context.Compilation, context.CancellationToken))
         {
             return;
         }
@@ -381,6 +386,12 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
         var sourceExceptionName = sourceType.OriginalDefinition.ToDisplayString();
         var targetExceptionName = targetType.OriginalDefinition.ToDisplayString();
         if (contract.IsDependencyExcepted(sourceExceptionName, targetExceptionName))
+        {
+            return;
+        }
+
+        // Checked only for actual violations: binding the enclosing declarations is not free.
+        if (config.SkipGeneratedCode && IsInGeneratedCodeDeclaration(name, semanticModel, cancellationToken))
         {
             return;
         }
@@ -487,7 +498,8 @@ var targetLayer = ResolveOperationalLayer(contract, targetType, config);
             _ => null,
         };
 
-        if (sourceType is null)
+        if (sourceType is null
+            || (config.SkipGeneratedCode && IsGeneratedCodeSymbol(context.OwningSymbol)))
         {
             return;
         }
@@ -512,7 +524,8 @@ var sourceLayer = ResolveOperationalLayer(contract, sourceType, config);
 
         foreach (var block in context.OperationBlocks)
         {
-            if (config.SkipGeneratedCode && IsGeneratedPath(block.Syntax.SyntaxTree.FilePath))
+            if (config.SkipGeneratedCode
+                && IsGeneratedCodeTree(block.Syntax.SyntaxTree, context.Compilation, context.CancellationToken))
             {
                 continue;
             }
@@ -619,8 +632,8 @@ private static void AnalyzeLayerDeclaration(
         // A generated declaration part must never mask a handwritten one (AARC004/005/006):
         // every part is scanned and the first non-generated part is the primary location. Only a
         // type whose parts are all generated is exempt from declaration checks (#42).
-        var primary = GetPrimaryNonGeneratedDeclaration(type);
-        if (primary is null)
+        var primary = GetPrimaryNonGeneratedDeclaration(type, context.Compilation, context.CancellationToken);
+        if (primary is null || IsGeneratedCodeSymbol(type))
         {
             return;
         }
@@ -756,6 +769,7 @@ private static void AnalyzeLayerDeclaration(
 
         Location? primary = null;
         OperationalConfig? config = null;
+        var hasGeneratedCodeAttribute = IsGeneratedCodeSymbol(type);
         foreach (var location in type.Locations)
         {
             if (location.SourceTree is not { } tree)
@@ -766,7 +780,9 @@ private static void AnalyzeLayerDeclaration(
             var candidateConfig = ConfigReader.Read(configProvider, tree, configDiagnostics);
             if (!candidateConfig.Enabled
                 || !candidateConfig.IsRuleEnabled("AARC010")
-                || (candidateConfig.SkipGeneratedCode && IsGeneratedPath(tree.FilePath)))
+                || (candidateConfig.SkipGeneratedCode
+                    && (hasGeneratedCodeAttribute
+                        || IsGeneratedCodeTree(tree, context.Compilation, context.CancellationToken))))
             {
                 continue;
             }
@@ -861,11 +877,15 @@ private static void AnalyzeLayerDeclaration(
     /// Mirrors PSXRecomp.Analyzer, which scans all declared parts so file order can never let a
     /// generated part swallow a handwritten type's compliance checks (#42).
     /// </summary>
-    private static Location? GetPrimaryNonGeneratedDeclaration(INamedTypeSymbol type)
+    private static Location? GetPrimaryNonGeneratedDeclaration(
+        INamedTypeSymbol type,
+        Compilation compilation,
+        CancellationToken cancellationToken)
     {
         foreach (var location in type.Locations)
         {
-            if (location.SourceTree is null || IsGeneratedPath(location.SourceTree.FilePath))
+            if (location.SourceTree is null
+                || IsGeneratedCodeTree(location.SourceTree, compilation, cancellationToken))
             {
                 continue;
             }
@@ -945,13 +965,14 @@ private static void AnalyzeLayerDeclaration(
         ArchitectureBaseline baseline,
         ConcurrentDictionary<string, byte> reportedInterop)
     {
-        if (IsGeneratedPath(context.Node.SyntaxTree.FilePath))
+        if (IsGeneratedCodeTree(context.Node.SyntaxTree, context.Compilation, context.CancellationToken))
         {
             return;
         }
 
         if (context.SemanticModel.GetDeclaredSymbol(context.Node, context.CancellationToken) is not IMethodSymbol method
-            || method.Locations.FirstOrDefault() is not { } declarationLocation)
+            || method.Locations.FirstOrDefault() is not { } declarationLocation
+            || IsGeneratedCodeSymbol(method))
         {
             return;
         }
@@ -1201,6 +1222,105 @@ private static void AnalyzeLayerDeclaration(
             || normalized.IndexOf("/bin/", StringComparison.OrdinalIgnoreCase) >= 0
             || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether a tree is generated code: the analyzer's own path heuristic plus the tree-level
+    /// signals the Roslyn driver used to apply while generated-code analysis was disabled
+    /// (<c>TemporaryGeneratedFile_</c> prefix, <c>generated_code = true</c> in .editorconfig and an
+    /// <c>&lt;auto-generated&gt;</c> header comment).
+    /// </summary>
+    private static bool IsGeneratedCodeTree(
+        SyntaxTree tree,
+        Compilation compilation,
+        CancellationToken cancellationToken)
+    {
+        return IsGeneratedPath(tree.FilePath)
+            || GetFileName(tree.FilePath).StartsWith("TemporaryGeneratedFile_", StringComparison.OrdinalIgnoreCase)
+            || compilation.Options.SyntaxTreeOptionsProvider?.IsGenerated(tree, cancellationToken) == GeneratedKind.MarkedGenerated
+            || HasAutoGeneratedHeader(tree, cancellationToken);
+    }
+
+    private static bool HasAutoGeneratedHeader(SyntaxTree tree, CancellationToken cancellationToken)
+    {
+        foreach (var trivia in tree.GetRoot(cancellationToken).GetLeadingTrivia())
+        {
+            if (!trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                && !trivia.IsKind(SyntaxKind.MultiLineCommentTrivia))
+            {
+                continue;
+            }
+
+            var text = trivia.ToString();
+            if (text.IndexOf("<autogenerated", StringComparison.Ordinal) >= 0
+                || text.IndexOf("<auto-generated", StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the symbol, an enclosing symbol, or the property/event an accessor belongs to
+    /// carries <c>[System.CodeDom.Compiler.GeneratedCode]</c>.
+    /// </summary>
+    private static bool IsGeneratedCodeSymbol(ISymbol? symbol)
+    {
+        for (var current = symbol; current is not null and not INamespaceSymbol; current = current.ContainingSymbol)
+        {
+            if (HasGeneratedCodeAttribute(current)
+                || (current is IMethodSymbol { AssociatedSymbol: { } associated } && HasGeneratedCodeAttribute(associated)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether any declaration enclosing <paramref name="node"/> (type, member, accessor, field)
+    /// carries <c>[GeneratedCode]</c>; partial types are covered through their merged symbol.
+    /// </summary>
+    private static bool IsInGeneratedCodeDeclaration(
+        SyntaxNode node,
+        SemanticModel semanticModel,
+        CancellationToken cancellationToken)
+    {
+        foreach (var ancestor in node.Ancestors())
+        {
+            if (ancestor is not MemberDeclarationSyntax and not AccessorDeclarationSyntax)
+            {
+                continue;
+            }
+
+            var declared = ancestor is BaseFieldDeclarationSyntax field
+                ? field.Declaration.Variables.Count > 0
+                    ? semanticModel.GetDeclaredSymbol(field.Declaration.Variables[0], cancellationToken)
+                    : null
+                : semanticModel.GetDeclaredSymbol(ancestor, cancellationToken);
+            if (declared is not null && HasGeneratedCodeAttribute(declared))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasGeneratedCodeAttribute(ISymbol symbol)
+    {
+        foreach (var attribute in symbol.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() == "System.CodeDom.Compiler.GeneratedCodeAttribute")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 
