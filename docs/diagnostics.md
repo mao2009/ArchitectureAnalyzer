@@ -156,6 +156,10 @@ before the allowlist so their specific reason wins when both mechanisms deny an 
 Each distinct source-type → target-type pair is reported once per compilation rather than once
 per reference.
 
+References inside attribute arguments and XML documentation comments (`<see cref>`,
+`<seealso cref>`, `<inheritdoc cref>`, …) are not dependencies and are never reported, so the
+result is the same whether or not `GenerateDocumentationFile` is enabled.
+
 ### Minimal triggering example
 
 `architecture.contract.json`:

@@ -343,6 +343,14 @@ context.RegisterOperationBlockAction(blockContext =>
             return;
         }
 
+        // XML doc references (cref, inheritdoc, seealso) are not code dependencies, and Roslyn only
+        // binds them when DocumentationMode >= Parse (e.g. GenerateDocumentationFile=true), so
+        // counting them would make AARC002 depend on build configuration (#70).
+        if (name.FirstAncestorOrSelf<DocumentationCommentTriviaSyntax>() is not null)
+        {
+            return;
+        }
+
         var semanticModel = context.SemanticModel;
         var cancellationToken = context.CancellationToken;
 

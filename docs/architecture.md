@@ -542,7 +542,7 @@ incrementally can remain on v1 or use `"ignore"` until their namespace coverage 
 | Diagnostic | Roslyn hook | What it looks at |
 |---|---|---|
 | AARC001 | `RegisterCompilationStartAction` + `RegisterCompilationEndAction` | The contract file itself; reported once per compilation with `Location.None` |
-| AARC002 | `RegisterSyntaxNodeAction(IdentifierName, GenericName)` | The symbol each name binds to, its declaring type, and the enclosing type declaration; attribute arguments are skipped |
+| AARC002 | `RegisterSyntaxNodeAction(IdentifierName, GenericName)` | The symbol each name binds to, its declaring type, and the enclosing type declaration; attribute arguments and XML documentation comments (`cref` in `see`/`seealso`/`inheritdoc`, …) are skipped, so the result does not depend on `GenerateDocumentationFile`/`DocumentationMode` |
 | AARC003 | `RegisterOperationBlockAction` | Every `IInvocationOperation`, `IObjectCreationOperation` and `IMemberReferenceOperation` in the block |
 | AARC004 / AARC005 / AARC006 | `RegisterSymbolAction(SymbolKind.NamedType)`, registered only when the contract has a `layerDeclaration` | The class's own attributes, its containing-type chain and its namespace |
 | AARC007 | `RegisterSyntaxNodeAction(MethodDeclaration)`, registered only when `interopBoundaryRules` is non-empty | Each method's attributes and the layer of its containing type |
