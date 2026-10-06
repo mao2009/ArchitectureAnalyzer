@@ -94,7 +94,7 @@ Source of truth: [`src/ArchitectureAnalyzer/Configuration/ConfigReader.cs`](../s
 
 | Property key | Type | Default | Scope | Effect |
 |---|---|---|---|---|
-| `dotnet_diagnostic.AARC001.architecture_analyzer.contract_required` | bool | `true` | compilation | When `false`, a missing or malformed contract stops producing [AARC001](diagnostics.md#aarc001) and the analyzer silently no-ops |
+| `dotnet_diagnostic.AARC001.architecture_analyzer.contract_required` | bool | `true` | compilation | When `false`, a malformed, unreadable or duplicated contract stops producing [AARC001](diagnostics.md#aarc001) and the analyzer silently no-ops. It has no effect on a project with no `architecture.contract.json` in `AdditionalFiles`: that project is never analyzed and never reports AARC001, whatever this value is (see §3.3) |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.enabled` | bool | `true` | per file | When `false`, AARC002/AARC003/AARC010 are skipped for that file (see §3.2 for what it does *not* cover) |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration` | bool | `true` | per file | When `false`, code in an unclassified namespace joins a synthetic `Unclassified` layer instead of being invisible, and [AARC004](diagnostics.md#aarc004) is not enforced |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer` | bool | `false` | per file | When `true`, [AARC006](diagnostics.md#aarc006) is checked even if the contract leaves `validateNamespaceConsistency` off |
@@ -131,7 +131,21 @@ Generated paths are recognized by file path: anything ending in `.g.cs`, `.g.i.c
 or `.generated.cs`, or living under an `obj/` or `bin/` directory. Roslyn's own
 `GeneratedCodeAnalysisFlags.None` exclusion applies on top of that and is not configurable.
 
-### 3.3 Precedence
+### 3.3 `contract_required` and a missing `AdditionalFiles` entry
+
+The analyzer only looks for a contract among the project's `AdditionalFiles`. If none is found
+(`<AdditionalFiles Include="architecture.contract.json" />` was forgotten, or its path is wrong),
+the compilation is skipped silently — no AARC001, no other rule diagnostics — regardless of
+`contract_required`. `contract_required` only decides whether a contract that *was* supplied but
+cannot be used (unreadable, malformed, inconsistent, duplicated) is reported. Always keep:
+
+```xml
+<AdditionalFiles Include="architecture.contract.json" />
+```
+
+in each governed project.
+
+### 3.4 Precedence
 
 Ordinary AnalyzerConfig precedence, nothing custom:
 

@@ -75,7 +75,9 @@ analyzer reports the matching paths and enforces **none** of them; it never sile
 This keeps a configuration mistake from applying an unintended architecture policy.
 
 A project that declares **no** contract file at all is not an error: the analyzer is opt-in and
-does nothing at all in that case. Likewise, setting
+does nothing at all in that case, independent of `contract_required` — so a forgotten
+`<AdditionalFiles Include="architecture.contract.json" />` line produces a green build with no
+enforcement. For a contract that *is* supplied, setting
 `dotnet_diagnostic.AARC001.architecture_analyzer.contract_required = false` suppresses AARC001 for
 both malformed/unreadable contracts and ambiguous duplicate-contract discovery; in either case no
 contract is enforced for that compilation. The diagnostic is otherwise reported once per

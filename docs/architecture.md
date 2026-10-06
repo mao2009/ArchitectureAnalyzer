@@ -195,7 +195,9 @@ contract with AARC001 instead of silently guessing.
     {
       "layer": "Domain",
       // Fully qualified declaring type, compared with an ordinal string match against
-      // ISymbol.ContainingType.OriginalDefinition.ToDisplayString().
+      // ISymbol.ContainingType.OriginalDefinition.ToDisplayString(). Generic types must
+      // therefore be written with their type parameters, e.g.
+      // "System.Collections.Generic.List<T>"; "System.Collections.Generic.List" never matches.
       "type": "System.Console",
       // No "member" and no "wholeType": every member of the type is forbidden.
       "reason": "Console I/O must be abstracted behind an Infrastructure adapter."
@@ -562,6 +564,11 @@ AARC004 is reported only when `layerDeclaration.required` is `true` **and** the 
 enclosing type resolves to a layer, as are types inside `markerNamespace`. AARC005 looks at the
 type's own attributes only. AARC006 needs `validateNamespaceConsistency` in the contract or the
 `validate_namespace_layer` option, and fires only for a type that declares exactly one layer.
+Marker attributes declared `[Conditional(...)]` classify types in the same compilation, but a
+`[Conditional]` attribute usage is stripped from emitted metadata when its symbol is undefined, so
+types from a *referenced assembly* carrying such a marker are unclassified. Use a non-conditional
+marker, or a namespace root, for cross-project classification.
+
 AARC004–AARC007 always skip generated paths, regardless of the generated-code options. AARC010
 instead follows the AARC002/AARC003 generated-path operational policy so strict coverage can be
 staged consistently — see [`configuration.md` §3.2](configuration.md#32-scope-precisely).
@@ -573,7 +580,7 @@ under `analyzers/dotnet/cs`, so a plain `PackageReference` loads it as an analyz
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.1.0" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1-rc1" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
 </ItemGroup>
 ```
@@ -593,6 +600,11 @@ consuming code:
 
 (Adjust the relative path for your own layout. A working end-to-end example lives in
 [`../tests/GateVerification/SampleConsumer`](../tests/GateVerification/SampleConsumer).)
+
+`0.2.1-rc1` is a pre-release; `0.1.0` supports only schema v1 (see the version table in the
+[README](../README.md#package-versions)). The `AdditionalFiles` line is mandatory for enforcement:
+a project with the analyzer but no `architecture.contract.json` entry is never analyzed and reports
+nothing, regardless of `contract_required`.
 
 Because the diagnostics are `Error` and `EnabledByDefault`, no further wiring is needed: the next
 `dotnet build` enforces the contract. Severity is tuned through the standard `.editorconfig`
