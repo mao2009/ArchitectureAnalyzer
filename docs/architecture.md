@@ -103,10 +103,14 @@ declare the current `"schemaVersion": 5`; existing v1/v2/v3/v4 and versionless c
 `layers` is required; the other rule sections are optional and activate only the analyses that
 depend on them.
 
-Unknown properties inside a **supported schema version** are ignored, which permits additive
-metadata without changing rule semantics. A schema change that can affect interpretation must
-increment `schemaVersion`; an analyzer that does not understand that version rejects the whole
-contract with AARC001 instead of silently guessing.
+Unknown properties inside a **supported schema version** are rejected with AARC001: within a
+known version an unrecognized key can only be a typo (`forbiddenDependenices`, `namespaceRoot`,
+`requireAcylic`), and ignoring it would silently drop a rule. The message names the key, its JSON
+path, line and column, and the nearest known key when one is close. Keys starting with `$` or
+`x-` (for example `$schema`, `x-owner`) are reserved for metadata and are ignored together with
+everything nested under them. A schema change that can affect interpretation must increment
+`schemaVersion`; an analyzer that does not understand that version rejects the whole contract
+with AARC001 instead of silently guessing.
 
 | Section | Required | Activates |
 |---|---|---|
@@ -382,9 +386,9 @@ exceptions.
   `null`, strings and fractional numbers are invalid rather than treated as versionless.
 - An unsupported version is rejected with AARC001. In particular, an older analyzer must never
   silently interpret a future schema version using old semantics.
-- Additive metadata may be introduced as unknown properties without changing existing semantics;
-  unknown properties are ignored. Any new property whose interpretation changes architecture
-  enforcement must ship under a new schema version.
+- Additive metadata must use `$`- or `x-`-prefixed keys, which are ignored. Any other unknown
+  property is rejected with AARC001 rather than ignored, so a misspelled key can never silently
+  disable a rule. Any new property must ship under a new schema version.
 - Exact duplicate namespace roots and duplicate forbidden dependency edges are invalid. One
   namespace root therefore has exactly one owner and one forbidden edge has exactly one
   declaration.

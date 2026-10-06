@@ -258,15 +258,16 @@ public sealed class ContractLoadingTests
     }
 
     [Fact]
-    public void Loader_UnknownProperties_AreIgnored()
+    public void Loader_MetadataPrefixedProperties_AreTolerated()
     {
         const string contract = """
             {
+              "$schema": "https://example.invalid/contract.schema.json",
               "schemaVersion": 1,
               "layers": [
-                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ], "color": "red" }
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ], "x-color": "red" }
               ],
-              "somethingFromTheFuture": { "nested": true }
+              "x-somethingFromTheFuture": { "nested": true }
             }
             """;
 
@@ -274,6 +275,119 @@ public sealed class ContractLoadingTests
 
         Assert.True(result.Succeeded, result.ErrorReason);
         Assert.Single(result.Contract!.Layers);
+    }
+
+    [Theory]
+    [InlineData(
+        """{ "layers": [], "somethingFromTheFuture": { "nested": true } }""",
+        "unknown property 'somethingFromTheFuture' at $.somethingFromTheFuture (line 1, column 17); prefix metadata keys with '$' or 'x-'")]
+    [InlineData(
+        """{ "layers": [ { "name": "Domain", "namespaceRoots": [ "A.Domain" ], "color": "red" } ] }""",
+        "unknown property 'color' at $.layers[0].color (line 1, column 69); prefix metadata keys with '$' or 'x-'")]
+    [InlineData(
+        """{ "schemaVersion": 4, "layers": [], "dependencyGraph": { "requireAcylic": true } }""",
+        "unknown property 'requireAcylic' at $.dependencyGraph.requireAcylic (line 1, column 58); did you mean 'requireAcyclic'?")]
+    [InlineData(
+        """{ "layers": [], "forbiddenDependenices": [ { "from": "A", "to": "B" } ] }""",
+        "unknown property 'forbiddenDependenices' at $.forbiddenDependenices (line 1, column 17); did you mean 'forbiddenDependencies'?")]
+    [InlineData(
+        """{ "layers": [ { "name": "Domain", "namespaceRoot": [ "A.Domain" ] } ] }""",
+        "unknown property 'namespaceRoot' at $.layers[0].namespaceRoot (line 1, column 35); did you mean 'namespaceRoots'?")]
+    [InlineData(
+        """{ "layers": [ { "name": "A" }, { "name": "B" } ], "forbiddenDependencies": [ { "from": "A", "tos": "B" } ] }""",
+        "unknown property 'tos' at $.forbiddenDependencies[0].tos (line 1, column 93); did you mean 'to'?")]
+    [InlineData(
+        """{ "layers": [ { "name": "A" } ], "layerDeclaration": { "markerAttributes": [ { "attributeFqn": "X", "Layer": "A" } ] } }""",
+        "unknown property 'Layer' at $.layerDeclaration.markerAttributes[0].Layer (line 1, column 101); did you mean 'layer'?")]
+    public void Loader_UnknownProperty_FailsWithPathPositionAndSuggestion(string contract, string expected)
+    {
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(expected, result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnknownProperty_ReportsMultiLinePosition()
+    {
+        var result = ArchitectureContractLoader.Load("{\n  \"layers\": [],\n  // comment\n  \"layer\": []\n}");
+
+        Assert.Equal(
+            "unknown property 'layer' at $.layer (line 4, column 3); did you mean 'layers'?",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_UnknownPropertyWithUnsupportedSchemaVersion_ReportsVersionFirst()
+    {
+        var result = ArchitectureContractLoader.Load("""{ "schemaVersion": 99, "layers": [], "typo": 1 }""");
+
+        Assert.Equal(
+            "unsupported schemaVersion '99'; supported schemaVersions are 1 through 5",
+            result.ErrorReason);
+    }
+
+    [Fact]
+    public void Loader_KnownPropertyFromNewerSchemaVersion_ReportsVersionRequirementNotUnknown()
+    {
+        var result = ArchitectureContractLoader.Load(
+            """{ "schemaVersion": 3, "layers": [], "dependencyGraph": { "requireAcyclic": true } }""");
+
+        Assert.Equal("property 'dependencyGraph' requires schemaVersion 4", result.ErrorReason);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Loader_EveryKnownPropertyForSchemaVersion_Succeeds(int version)
+    {
+        var contract = $$"""
+            {
+              "schemaVersion": {{version}},
+              {{(version >= 2 ? "\"unclassifiedCode\": \"error\"," : "")}}
+              "layers": [
+                { "name": "Domain", "namespaceRoots": [ "Sample.Domain" ] },
+                { "name": "Application", "namespaceRoots": [ "Sample.Application" ] }
+              ],
+              "forbiddenDependencies": [ { "from": "Domain", "to": "Application", "reason": "r" } ],
+              {{(version >= 3 ? "\"allowedDependencies\": [ { \"from\": \"Application\", \"to\": [ \"Domain\" ], \"reason\": \"r\" } ]," : "")}}
+              {{(version >= 4 ? "\"dependencyGraph\": { \"requireAcyclic\": true }," : "")}}
+              {{(version >= 5 ? "\"exceptions\": [ { \"diagnosticId\": \"AARC002\", \"sourceType\": \"S\", \"targetType\": \"T\", \"justification\": \"j\" }, { \"diagnosticId\": \"AARC003\", \"sourceType\": \"S\", \"apiType\": \"A\", \"member\": \"M\", \"justification\": \"j\" } ]," : "")}}
+              "forbiddenApis": [ { "layer": "Domain", "type": "System.Console", "member": "WriteLine", "wholeType": false, "reason": "r" } ],
+              "layerDeclaration": {
+                "required": true,
+                "validateNamespaceConsistency": true,
+                "markerNamespace": "Sample.Markers",
+                "markerAttributes": [ { "attributeFqn": "Sample.Markers.DomainAttribute", "layer": "Domain" } ]
+              },
+              "interopBoundaryRules": [ { "attribute": "System.Runtime.InteropServices.DllImportAttribute", "allowedLayer": "Domain", "reason": "r" } ]
+            }
+            """;
+
+        var result = ArchitectureContractLoader.Load(contract);
+
+        Assert.True(result.Succeeded, result.ErrorReason);
+    }
+
+    [Fact]
+    public async Task UnknownContractProperty_ReportsContractInvalid()
+    {
+        var test = new ArchitectureAnalyzerTest(
+            """{ "layers": [], "forbiddenDependenices": [] }""")
+        {
+            TestCode = CleanSource,
+        };
+
+        test.ExpectedDiagnostics.Add(ArchitectureAnalyzerTest.ExpectNoLocation(
+            ArchitectureDiagnostics.ArchitectureContractInvalid,
+            ArchitectureContractAnalyzer.ContractFileName,
+            "unknown property 'forbiddenDependenices' at $.forbiddenDependenices (line 1, column 17); "
+                + "did you mean 'forbiddenDependencies'?"));
+
+        await test.RunAsync();
     }
 
     [Fact]
