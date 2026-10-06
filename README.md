@@ -305,8 +305,8 @@ not an operational toggle; see
   `unclassifiedCode=ignore` intentionally preserve permissive legacy behavior.
 - Say anything about runtime behaviour, correctness or security beyond the declared layer graph
   and API list.
-- Catch indirection that routes around the type system — reflection, `dynamic`, generated code on
-  an excluded path, or `unsafe` pointer arithmetic.
+- Catch indirection that routes around the type system — reflection, `dynamic`, generated code that the
+  generated-code options exclude, or `unsafe` pointer arithmetic.
 - Classify types from another project through a `[Conditional]` marker attribute: such usages are
   stripped from referenced-assembly metadata, so those types are unclassified (see
   [`docs/architecture.md` §5](docs/architecture.md#5-what-each-diagnostic-inspects)).
