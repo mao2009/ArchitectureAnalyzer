@@ -99,7 +99,7 @@ Source of truth: [`src/ArchitectureAnalyzer/Configuration/ConfigReader.cs`](../s
 | `dotnet_diagnostic.AARC002.architecture_analyzer.require_layer_declaration` | bool | `true` | per file | When `false`, code in an unclassified namespace joins a synthetic `Unclassified` layer instead of being invisible, and [AARC004](diagnostics.md#aarc004) is not enforced |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.validate_namespace_layer` | bool | `false` | per file | When `true`, [AARC006](diagnostics.md#aarc006) is checked even if the contract leaves `validateNamespaceConsistency` off |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.generated_code` | `exclude` / `include` | `exclude` | per file | `include` analyzes generated code (see §3.2 for what counts) for AARC002/AARC003/AARC010 |
-| `dotnet_diagnostic.AARC002.architecture_analyzer.skip_generated_code` | bool | `true` | per file | Boolean form of the above; `false` on *either* this or the AARC003 key analyzes generated-path files |
+| `dotnet_diagnostic.AARC002.architecture_analyzer.skip_generated_code` | bool | `true` | per file | Boolean form of the above; `false` on *either* this or the AARC003 key analyzes generated code |
 | `dotnet_diagnostic.AARC003.architecture_analyzer.skip_generated_code` | bool | `true` | per file | See above |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC002.enabled` | bool | `true` | per file | Turns AARC002 off for that file without touching its severity |
 | `dotnet_diagnostic.AARC002.architecture_analyzer.rule.AARC003.enabled` | bool | `true` | per file | Turns AARC003 off for that file without touching its severity |
