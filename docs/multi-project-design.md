@@ -122,8 +122,10 @@ name happens to resemble a test/tool project.
 Generated-code handling remains source-tree operational configuration and is independent of
 multi-project scoping.
 
-A project being governed does not imply that generated paths are analyzed. Existing
-`generated_code` / `skip_generated_code` behavior continues to control that.
+A project being governed does not imply that generated code is analyzed. Existing
+`generated_code` / `skip_generated_code` behavior continues to control that. `bin/`/`obj/` paths
+are judged relative to each project's own `build_property.ProjectDir`, so a project checked out
+below a directory named `bin` or `obj` is still analyzed.
 
 ## Shared contract files
 

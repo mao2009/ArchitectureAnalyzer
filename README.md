@@ -104,7 +104,7 @@ From NuGet — the package ships the analyzer under `analyzers/dotnet/cs`, so a 
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.1.0" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1-rc1" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
   <!-- Optional: checked-in legacy-debt ratchet. -->
   <AdditionalFiles Include="architecture.baseline.json" Condition="Exists('architecture.baseline.json')" />
@@ -125,13 +125,35 @@ Or from source, if you vendor or submodule this repository:
 `OutputItemType="Analyzer"` loads the assembly as an analyzer; `ReferenceOutputAssembly="false"`
 keeps it out of your runtime dependencies. Adjust the relative path for your layout.
 
-The current published package is `loach.ArchitectureAnalyzer` **0.1.0**, cut from tag
-`v0.1.0`, and carries AARC001–AARC009. Schema v2/v3/v4/v5, AARC010/AARC011,
-`allowedDependencies`, `dependencyGraph` and justified `exceptions` were added after that tag
-and are currently available from `main` (or a source reference); baseline ratcheting and AARC012
-are also on `main`, together with the new `loach.ArchitectureAnalyzer.Baseline` dotnet tool.
-They require the next tagged NuGet release before PackageReference/tool consumers can use them.
-Package 0.1.0 consumers should keep using schema v1 and omit v2+ properties.
+**`<AdditionalFiles Include="architecture.contract.json" />` is what turns enforcement on.** A
+project that references the analyzer but has no such entry is never analyzed: no AARC001, no
+other diagnostic, a green build with zero enforcement. `contract_required` does not change this
+(it only affects a contract that *is* supplied but is malformed or duplicated). If you expect
+enforcement, check that the `AdditionalFiles` line exists in that project.
+
+#### Package versions
+
+`0.2.1-rc1` is a **pre-release** (the latest tag is `v0.2.1-rc1`); `0.1.0` is the latest stable
+release. NuGet's "latest stable" and a floating `Version="*"` do not pick pre-releases, so pin the
+version explicitly:
+
+```bash
+dotnet add package loach.ArchitectureAnalyzer --version 0.2.1-rc1   # or --prerelease
+dotnet tool install --global loach.ArchitectureAnalyzer.Baseline --version 0.2.1-rc1
+```
+
+| Feature | `0.1.0` | `0.2.1-rc1` |
+|---|---|---|
+| Contract schema | v1 / versionless | v1–v5 (versionless is v1) |
+| `unclassifiedCode` (v2), AARC010 | no | yes |
+| `allowedDependencies` (v3) | no | yes |
+| `dependencyGraph.requireAcyclic` (v4), AARC011 | no | yes |
+| `exceptions` (v5) | no | yes |
+| Baseline ratcheting, AARC012/AARC013, `loach.ArchitectureAnalyzer.Baseline` tool | no | yes |
+| Diagnostics | AARC001–AARC009 | AARC001–AARC013 |
+
+A `0.1.0` consumer must stay on schema v1 and omit v2+ properties; a newer schema is rejected
+with AARC001. Source/`main` references always have the current feature set.
 
 ### 3. Build
 
@@ -140,8 +162,8 @@ error AARC002: 'MyApp.Domain.Order' (Domain) must not depend on 'MyApp.Applicati
 (Application): Domain must not depend on the outer Application layer.
 ```
 
-That is the whole setup. A project that ships no `architecture.contract.json` is unaffected —
-the analyzer is opt-in and does nothing without a contract.
+That is the whole setup. A project that ships no `architecture.contract.json` in
+`AdditionalFiles` is unaffected — the analyzer is opt-in and does nothing without a contract.
 
 In a multi-project solution, this opt-in is **per compilation**. You may distribute the analyzer
 reference centrally while adding `AdditionalFiles` only to governed projects. Different projects
@@ -239,7 +261,8 @@ suppression options are in [`docs/diagnostics.md`](docs/diagnostics.md).
 
 Severity is set with the standard `.editorconfig` keys, and a handful of `architecture_analyzer.*`
 properties tune how the analyzer runs (generated-code handling, per-rule switches, whether a
-missing contract is an error):
+malformed or duplicated contract is an error — a project with *no* `AdditionalFiles` contract is
+always silent):
 
 ```ini
 [*.cs]
@@ -269,8 +292,9 @@ not an operational toggle; see
   a namespace root nor a configured marker fails the build with AARC010.
 - With schema-v4 `dependencyGraph.requireAcyclic=true`, cycles in the explicit
   `allowedDependencies` policy graph fail the build with deterministic AARC011 paths.
-- A referenced contract file that is missing or malformed fails the build, rather than silently
-  disabling enforcement.
+- A supplied contract file that is unreadable, malformed or duplicated fails the build (AARC001),
+  rather than silently disabling enforcement. Omitting the `AdditionalFiles` entry altogether is
+  not detected.
 - The check runs everywhere `dotnet build` runs, with nothing extra to install or remember.
 
 **Does not**:
@@ -281,8 +305,11 @@ not an operational toggle; see
   `unclassifiedCode=ignore` intentionally preserve permissive legacy behavior.
 - Say anything about runtime behaviour, correctness or security beyond the declared layer graph
   and API list.
-- Catch indirection that routes around the type system — reflection, `dynamic`, generated code on
-  an excluded path, or `unsafe` pointer arithmetic.
+- Catch indirection that routes around the type system — reflection, `dynamic`, generated code that the
+  generated-code options exclude, or `unsafe` pointer arithmetic.
+- Classify types from another project through a `[Conditional]` marker attribute: such usages are
+  stripped from referenced-assembly metadata, so those types are unclassified (see
+  [`docs/architecture.md` §5](docs/architecture.md#5-what-each-diagnostic-inspects)).
 
 See [`docs/design.md` §9](docs/design.md#9-what-this-analyzer-guarantees-and-what-it-does-not).
 
@@ -353,10 +380,10 @@ MIT — see [`LICENSE`](LICENSE).
 Twelve normal diagnostics (AARC001–AARC012) plus generator-only AARC013, namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
 declared-graph DAG enforcement, schema-v5 exact justified AARC002/AARC003 exceptions,
-attribute-driven interop boundaries, and `.editorconfig` operational options. The current published package is `loach.ArchitectureAnalyzer` 0.1.0
-(AARC001–AARC009); schema v2/v3/v4/v5, AARC010/AARC011, `allowedDependencies`,
-`dependencyGraph`, `exceptions`, baseline ratcheting, AARC012/AARC013 and the baseline generator tool
-are on `main` awaiting the next tag.
+attribute-driven interop boundaries, and `.editorconfig` operational options. The latest tag and
+NuGet pre-release is `loach.ArchitectureAnalyzer` / `loach.ArchitectureAnalyzer.Baseline`
+`0.2.1-rc1`, which includes all of the above; the latest stable package is `0.1.0`
+(AARC001–AARC009, schema v1). See [Package versions](#package-versions).
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
 there is still no DSL, and multi-file contracts remain unimplemented on purpose
