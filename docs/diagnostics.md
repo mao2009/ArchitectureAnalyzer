@@ -63,8 +63,24 @@ consumer.
 
 Argument `{0}` is the contract file name; `{1}` is the specific reason — `file not found`, the
 raw `System.Text.Json` parse error, a schema-validation message such as
-`layer 'Application' referenced in forbiddenDependencies is not declared in layers`, or an
-ambiguous-discovery message listing multiple matching `architecture.contract.json` files.
+`layer 'Application' referenced in forbiddenDependencies is not declared in layers`, an
+unknown-property message, or an ambiguous-discovery message listing multiple matching
+`architecture.contract.json` files.
+
+Unknown properties are rejected anywhere in the contract (root, layer entries, rule entries,
+`dependencyGraph`, `layerDeclaration`, …), because inside a supported `schemaVersion` an
+unrecognized key is a typo that would otherwise silently disable a rule. The reason names the key,
+its JSON path, its line and column, and the nearest known key when one is close:
+
+```
+error AARC001: Architecture contract 'architecture.contract.json' could not be loaded:
+unknown property 'namespaceRoot' at $.layers[0].namespaceRoot (line 3, column 25);
+did you mean 'namespaceRoots'?
+```
+
+Keys starting with `$` or `x-` (for example `$schema` or `x-owner`) are reserved for metadata and
+ignored, including anything nested beneath them. An unsupported `schemaVersion` is reported
+before unknown properties.
 
 ### Description
 
