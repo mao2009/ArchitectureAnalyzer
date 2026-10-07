@@ -104,7 +104,7 @@ From NuGet — the package ships the analyzer under `analyzers/dotnet/cs`, so a 
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1-rc1" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
   <!-- Optional: checked-in legacy-debt ratchet. -->
   <AdditionalFiles Include="architecture.baseline.json" Condition="Exists('architecture.baseline.json')" />
@@ -133,16 +133,15 @@ enforcement, check that the `AdditionalFiles` line exists in that project.
 
 #### Package versions
 
-`0.2.1-rc1` is a **pre-release** (the latest tag is `v0.2.1-rc1`); `0.1.0` is the latest stable
-release. NuGet's "latest stable" and a floating `Version="*"` do not pick pre-releases, so pin the
-version explicitly:
+`0.2.1` is the current stable release. `0.1.0` remains available for consumers that have not
+upgraded yet.
 
 ```bash
-dotnet add package loach.ArchitectureAnalyzer --version 0.2.1-rc1   # or --prerelease
-dotnet tool install --global loach.ArchitectureAnalyzer.Baseline --version 0.2.1-rc1
+dotnet add package loach.ArchitectureAnalyzer --version 0.2.1
+dotnet tool install --global loach.ArchitectureAnalyzer.Baseline --version 0.2.1
 ```
 
-| Feature | `0.1.0` | `0.2.1-rc1` |
+| Feature | `0.1.0` | `0.2.1` |
 |---|---|---|
 | Contract schema | v1 / versionless | v1–v5 (versionless is v1) |
 | `unclassifiedCode` (v2), AARC010 | no | yes |
@@ -380,9 +379,9 @@ MIT — see [`LICENSE`](LICENSE).
 Twelve normal diagnostics (AARC001–AARC012) plus generator-only AARC013, namespace **and** attribute-based layer classification,
 schema-v2 strict architecture coverage, schema-v3 positive dependency allowlists, schema-v4
 declared-graph DAG enforcement, schema-v5 exact justified AARC002/AARC003 exceptions,
-attribute-driven interop boundaries, and `.editorconfig` operational options. The latest tag and
-NuGet pre-release is `loach.ArchitectureAnalyzer` / `loach.ArchitectureAnalyzer.Baseline`
-`0.2.1-rc1`, which includes all of the above; the latest stable package is `0.1.0`
+attribute-driven interop boundaries, and `.editorconfig` operational options. The current stable
+packages are `loach.ArchitectureAnalyzer` and `loach.ArchitectureAnalyzer.Baseline` **0.2.1**,
+which include all of the above. `0.1.0` remains the previous stable analyzer release
 (AARC001–AARC009, schema v1). See [Package versions](#package-versions).
 
 The Architecture Contract format stays deliberately small and grows only from real consumer need —
