@@ -590,7 +590,7 @@ under `analyzers/dotnet/cs`, so a plain `PackageReference` loads it as an analyz
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1-rc1" PrivateAssets="all" />
+  <PackageReference Include="loach.ArchitectureAnalyzer" Version="0.2.1" PrivateAssets="all" />
   <AdditionalFiles Include="architecture.contract.json" />
 </ItemGroup>
 ```
@@ -611,7 +611,8 @@ consuming code:
 (Adjust the relative path for your own layout. A working end-to-end example lives in
 [`../tests/GateVerification/SampleConsumer`](../tests/GateVerification/SampleConsumer).)
 
-`0.2.1-rc1` is a pre-release; `0.1.0` supports only schema v1 (see the version table in the
+`0.2.1` is the current stable release and supports the complete schema-v1-through-v5 feature
+set. `0.1.0` supports only schema v1 (see the version table in the
 [README](../README.md#package-versions)). The `AdditionalFiles` line is mandatory for enforcement:
 a project with the analyzer but no `architecture.contract.json` entry is never analyzed and reports
 nothing, regardless of `contract_required`.
