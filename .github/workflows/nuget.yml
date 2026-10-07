@@ -2,24 +2,30 @@ name: NuGet
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+    paths:
+      - '.release-version'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Package version (for example 0.1.0)'
+        description: 'Package version (for example 0.2.1)'
         required: true
         type: string
 
+# A main-branch release marker is allowed to create the matching GitHub tag/release only after
+# both NuGet packages have been published and restored again from the public feed.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
     name: Pack and publish NuGet package
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     env:
       NUGET_SOURCE: https://api.nuget.org/v3/index.json
 
@@ -38,10 +44,14 @@ jobs:
         id: version
         shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             version='${{ inputs.version }}'
-          else
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
+          else
+            test -f .release-version
+            version="$(tr -d '\r\n[:space:]' < .release-version)"
           fi
 
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
@@ -50,6 +60,11 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "create_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "create_release=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Restore
         run: dotnet restore ArchitectureAnalyzer.sln
@@ -60,7 +75,37 @@ jobs:
           dotnet build tools/ArchitectureAnalyzer.Baseline/ArchitectureAnalyzer.Baseline.csproj --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test src/ArchitectureAnalyzer.Tests/ArchitectureAnalyzer.Tests.csproj --configuration Release
+        run: dotnet test ArchitectureAnalyzer.sln --configuration Release
+
+      - name: Verify architecture gate
+        shell: bash
+        run: |
+          chmod +x tests/GateVerification/verify-gate.sh
+          tests/GateVerification/verify-gate.sh
+
+      - name: Verify multi-project contract isolation
+        shell: bash
+        run: |
+          chmod +x tests/MultiProjectGate/verify-multi-project.sh
+          tests/MultiProjectGate/verify-multi-project.sh
+
+      - name: Verify baseline ratcheting and generator
+        shell: bash
+        run: |
+          chmod +x tests/BaselineGate/verify-baseline.sh
+          tests/BaselineGate/verify-baseline.sh
+
+      - name: Restore representative performance benchmark
+        run: dotnet restore tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
+
+      - name: Representative performance regression guard
+        run: >-
+          dotnet run
+          --project tests/PerformanceBenchmark/ArchitectureAnalyzer.PerformanceBenchmark.csproj
+          --configuration Release
+          --no-restore
+          --
+          --ci
 
       - name: Pack
         shell: bash
@@ -103,3 +148,69 @@ jobs:
           --source "$NUGET_SOURCE"
           --api-key "${{ secrets.NUGET_API_KEY }}"
           --skip-duplicate
+
+      - name: Verify packages from public NuGet feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          root="$(mktemp -d)"
+          trap 'rm -rf "$root"' EXIT
+
+          analyzer_ok=false
+          for attempt in $(seq 1 30); do
+            rm -rf "$root/consumer"
+            dotnet new classlib -n PublicConsumer -o "$root/consumer" --framework net10.0 >/dev/null
+            if dotnet add "$root/consumer/PublicConsumer.csproj" package loach.ArchitectureAnalyzer \
+                --version "$version" --source "$NUGET_SOURCE" >/dev/null 2>&1 \
+              && dotnet restore "$root/consumer/PublicConsumer.csproj" --source "$NUGET_SOURCE" >/dev/null 2>&1 \
+              && dotnet build "$root/consumer/PublicConsumer.csproj" --no-restore >/dev/null 2>&1; then
+              analyzer_ok=true
+              break
+            fi
+            sleep 10
+          done
+          test "$analyzer_ok" = true
+
+          tool_ok=false
+          for attempt in $(seq 1 30); do
+            rm -rf "$root/tool"
+            mkdir -p "$root/tool"
+            if dotnet tool install --tool-path "$root/tool" loach.ArchitectureAnalyzer.Baseline \
+                --version "$version" --add-source "$NUGET_SOURCE" >/dev/null 2>&1; then
+              tool_ok=true
+              break
+            fi
+            sleep 10
+          done
+          test "$tool_ok" = true
+          dotnet tool list --tool-path "$root/tool" | grep -q 'loach.architectureanalyzer.baseline'
+
+          set +e
+          "$root/tool/architecture-baseline" >"$root/tool-usage.txt" 2>&1
+          usage_exit=$?
+          set -e
+          test "$usage_exit" -eq 2
+          grep -q 'architecture-baseline generate' "$root/tool-usage.txt"
+
+      - name: Create stable GitHub release
+        if: steps.version.outputs.create_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          tag="v${version}"
+          notes="docs/releases/${tag}.md"
+          test -f "$notes"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes-file "$notes"
