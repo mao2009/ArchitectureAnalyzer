@@ -20,6 +20,8 @@ class FeedbackTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         (self.root / "App.csproj").write_text("<Project />", encoding="utf-8")
+        (self.root / "architecture.contract.json").write_text("{}", encoding="utf-8")
+        (self.root / "policysharp.json").write_text("{}", encoding="utf-8")
         self.ids = frozenset({"AARC002", "RT0001", "PSHARP2001"})
 
     def fake(self, code, stdout="", stderr="", wired=True):
