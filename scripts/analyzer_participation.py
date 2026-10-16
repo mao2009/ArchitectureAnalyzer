@@ -76,13 +76,21 @@ def verify_participation(
 
     if required_additional:
         expected = required_additional.lower()
-        additional = [
-            str(item.get("Identity", "")).replace("\\", "/").lower().split("/")[-1]
-            for item in entries("AdditionalFiles")
+        matching_files = [
+            item for item in entries("AdditionalFiles")
+            if str(item.get("Identity", "")).replace("\\", "/").lower().split("/")[-1] == expected
         ]
-        if expected not in additional:
+        if not matching_files:
             # PolicySharp's own CLI also locates a policy next to the project
             # when it is not declared as an AdditionalFile.
             if not (internal_cli and (target.parent / required_additional).is_file()):
                 failures.append("required AdditionalFiles item not evaluated: " + required_additional)
+        else:
+            paths = []
+            for item in matching_files:
+                path_text = str(item.get("FullPath") or item.get("Identity") or "")
+                candidate = Path(path_text)
+                paths.append(candidate if candidate.is_absolute() else target.parent / candidate)
+            if not any(path.is_file() for path in paths):
+                failures.append("required AdditionalFiles input is missing: " + required_additional)
     return failures
