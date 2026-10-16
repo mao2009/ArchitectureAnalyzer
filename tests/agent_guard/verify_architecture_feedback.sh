@@ -20,8 +20,16 @@ if [[ -e "$violation" ]]; then
 fi
 
 dotnet restore "$project"
+set +e
 python "$repo_root/scripts/agent_diagnostic_feedback.py" --root "$sample" --project SampleConsumer.csproj \
   --backend build --strict >"$temp/green.json"
+green=$?
+set -e
+if [[ $green -ne 0 ]]; then
+  cat "$temp/green.json"
+  echo "Expected clean consumer to pass strict gate (exit $green)" >&2
+  exit 1
+fi
 python - "$temp/green.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1]))
