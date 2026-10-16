@@ -7,6 +7,7 @@ Always follow it with a real build and independently trusted CI.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -22,6 +23,7 @@ def verify_participation(
     dotnet: str = "dotnet",
     executor: Callable = subprocess.run,
     timeout: int = 90,
+    protected_ids: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Return failure reasons. Empty means evaluated wiring appears enabled."""
     try:
@@ -33,7 +35,7 @@ def verify_participation(
             return ["a governed .csproj is required; specify --guard-project for a solution"]
         cmd = [
             dotnet, "msbuild", str(target), "-nologo",
-            "-getProperty:RunAnalyzers,RunAnalyzersDuringBuild",
+            "-getProperty:RunAnalyzers,RunAnalyzersDuringBuild,NoWarn,WarningsNotAsErrors",
             "-getItem:PackageReference,ProjectReference,Analyzer,AdditionalFiles",
         ]
         result = executor(cmd, cwd=root, capture_output=True, text=True,
@@ -52,6 +54,14 @@ def verify_participation(
     for key in ("RunAnalyzers", "RunAnalyzersDuringBuild"):
         if str(properties.get(key, "")).strip().lower() == "false":
             failures.append(key + " is disabled")
+    if protected_ids:
+        for key in ("NoWarn", "WarningsNotAsErrors"):
+            specified = set(re.findall(r"[A-Za-z][A-Za-z0-9]+",
+                                       str(properties.get(key, "")).upper()))
+            hidden = sorted(specified & protected_ids)
+            if hidden:
+                failures.append("evaluated " + key + " disables protected diagnostics: " +
+                                ",".join(hidden))
 
     def entries(name: str) -> list[dict]:
         raw = items.get(name)
@@ -63,7 +73,14 @@ def verify_participation(
         for item in entries("PackageReference") + entries("Analyzer"):
             identity = str(item.get("Identity", "")).replace("\\", "/").lower()
             if hint in identity:
-                found = True
+                excluded = set(re.split(r"[\s,;]+", str(item.get("ExcludeAssets", "")).lower()))
+                included = set(re.split(r"[\s,;]+", str(item.get("IncludeAssets", "")).lower()))
+                if "all" in excluded or "analyzers" in excluded or (
+                    included - {""} and "all" not in included and "analyzers" not in included
+                ):
+                    failures.append("analyzer reference explicitly excludes analyzer assets: " + analyzer)
+                else:
+                    found = True
                 break
         for item in entries("ProjectReference"):
             identity = str(item.get("Identity", "")).replace("\\", "/").lower()
