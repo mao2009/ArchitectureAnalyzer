@@ -22,10 +22,38 @@ class FeedbackTests(unittest.TestCase):
         (self.root / "App.csproj").write_text("<Project />", encoding="utf-8")
         self.ids = frozenset({"AARC002", "RT0001", "PSHARP2001"})
 
-    def fake(self, code, stdout="", stderr=""):
-        return lambda command, **kwargs: subprocess.CompletedProcess(
-            command, code, stdout=stdout, stderr=stderr,
-        )
+    def fake(self, code, stdout="", stderr="", wired=True):
+        def run(command, **kwargs):
+            if len(command) > 1 and command[1] == "msbuild":
+                payload = {
+                    "Properties": {
+                        "RunAnalyzers": "true",
+                        "RunAnalyzersDuringBuild": "true",
+                    },
+                    "Items": {
+                        "PackageReference": (
+                            [{"Identity": "loach.PureSharp"},
+                             {"Identity": "loach.ArchitectureAnalyzer"},
+                             {"Identity": "loach.PolicySharp.Analyzers"}]
+                            if wired else []
+                        ),
+                        "ProjectReference": [],
+                        "Analyzer": [],
+                        "AdditionalFiles": [
+                            {"Identity": "policysharp.json"},
+                            {"Identity": "architecture.contract.json"},
+                        ] if wired else [],
+                    },
+                }
+                return subprocess.CompletedProcess(
+                    command, 0, stdout=json.dumps(payload), stderr=""
+                )
+            if "build" in command and stdout.lstrip().startswith("{"):
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                command, code, stdout=stdout, stderr=stderr,
+            )
+        return run
 
     def check(self, runner, **extra):
         return feedback.run_check(self.root, Path("App.csproj"), self.ids,
@@ -48,7 +76,7 @@ class FeedbackTests(unittest.TestCase):
         )
         green_build = self.fake(0)
         self.assertEqual("DENY", self.check(green_build, strict=True)["status"])
-        self.assertEqual("ALLOW", self.check(green_build, strict=False)["status"])
+        self.assertEqual("UNVERIFIED", self.check(green_build, strict=False)["status"])
 
     def test_parses_all_three_analyzer_families(self):
         lines = (
@@ -61,6 +89,54 @@ class FeedbackTests(unittest.TestCase):
         diagnostics = feedback.parse_build_diagnostics(lines)
         self.assertEqual(["RT0001", "LVP0001", "FIF0001", "AARC002", "PSHARP2001"],
                          [item["id"] for item in diagnostics])
+
+    def test_missing_analyzer_reference_is_not_allow(self):
+        result = self.check(self.fake(0, wired=False), strict=True)
+        self.assertEqual("ERROR", result["status"])
+        self.assertIn("reference not present", result["error"])
+
+    def test_missing_contract_is_not_allow(self):
+        def missing_contract(command, **kw):
+            if len(command) > 1 and command[1] == "msbuild":
+                payload = {
+                    "Properties": {"RunAnalyzers": "true",
+                                   "RunAnalyzersDuringBuild": "true"},
+                    "Items": {"PackageReference": [
+                        {"Identity": "loach.ArchitectureAnalyzer"},
+                        {"Identity": "loach.PolicySharp.Analyzers"},
+                        {"Identity": "loach.PureSharp"}],
+                        "ProjectReference": [], "Analyzer": [], "AdditionalFiles": []},
+                }
+                return subprocess.CompletedProcess(command, 0,
+                    stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        result = self.check(missing_contract, strict=True)
+        # PureSharp intentionally does not use a contract file.
+        if feedback.DEFAULT_IDS[0].startswith(("RT", "LVP", "FIF")):
+            self.assertEqual("ALLOW", result["status"])
+        else:
+            self.assertEqual("ERROR", result["status"])
+
+    def test_policysharp_cli_rejects_syntax_errors_before_policy_check(self):
+        cli = self.root / "src" / "PolicySharp.Cli" / "PolicySharp.Cli.csproj"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("<Project />", encoding="utf-8")
+        (self.root / "policysharp.json").write_text("{}", encoding="utf-8")
+        broken = self.fake(1, "Broken.cs(1,1): error CS1002: ; expected\n")
+        result = self.check(broken, backend="policysharp", strict=True)
+        self.assertEqual("DENY", result["status"])
+        self.assertEqual("CS1002", result["diagnostics"][0]["id"])
+
+    def test_cli_exact_exit_code_required(self):
+        cli = self.root / "src" / "PolicySharp.Cli" / "PolicySharp.Cli.csproj"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("<Project />", encoding="utf-8")
+        (self.root / "policysharp.json").write_text("{}", encoding="utf-8")
+        result = self.check(
+            self.fake(1, '{"exitCode":2,"diagnostics":[]}'),
+            backend="policysharp", strict=True,
+        )
+        self.assertEqual("ERROR", result["status"])
 
     def test_cli_uses_existing_policysharp_json_contract(self):
         cli = self.root / "src" / "PolicySharp.Cli" / "PolicySharp.Cli.csproj"
