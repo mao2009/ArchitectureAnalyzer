@@ -82,10 +82,12 @@ def verify_participation(
                 else:
                     found = True
                 break
+        expected_project = hint.removeprefix("loach.")
         for item in entries("ProjectReference"):
             identity = str(item.get("Identity", "")).replace("\\", "/").lower()
+            project_stem = Path(identity).stem.lower()
             output_type = str(item.get("OutputItemType", "")).lower()
-            if hint in identity and output_type == "analyzer":
+            if project_stem == expected_project and output_type == "analyzer":
                 found = True
                 break
         if not found:
