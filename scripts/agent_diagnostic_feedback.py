@@ -18,6 +18,7 @@ from typing import Callable
 # Use the adjacent strict audit in the stacked security change.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from strict_diagnostic_audit import DEFAULT_IDS, audit_tree, parse_ids
+from analyzer_participation import verify_participation
 
 BUILD_DIAGNOSTIC = re.compile(
     r"^(?P<source>.+?)\((?P<line>\d+),(?P<column>\d+)(?:,\d+,\d+)?\):\s*"
@@ -65,6 +66,7 @@ def run_check(
     restore: bool = False,
     timeout: int = 180,
     policysharp_cli: str | None = None,
+    guard_project: Path | None = None,
     dotnet_path: str | None = None,
     executor: Callable = subprocess.run,
 ) -> dict:
@@ -86,8 +88,19 @@ def run_check(
         return _error(type(exc).__name__ + ": " + str(exc))
 
     dotnet = dotnet_path or shutil.which("dotnet")
-    if not dotnet and not (backend == "policysharp" and policysharp_cli):
+    # A real compiler build is required even with an installed CLI executable.
+    if not dotnet:
         return _error("dotnet SDK not found (no validation performed)")
+
+    if strict:
+        governed = guard_project or project
+        wiring = verify_participation(
+            root, governed, "loach.ArchitectureAnalyzer", "architecture.contract.json",
+            internal_cli=(backend == "policysharp"), dotnet=dotnet, executor=executor,
+            timeout=timeout,
+        )
+        if wiring:
+            return _error("enforcement participation is unverified: " + "; ".join(wiring))
 
     if backend == "build":
         command = [dotnet, "build", str(target), "--nologo", "-v:q",
@@ -108,6 +121,23 @@ def run_check(
     else:
         return _error("unknown backend")
     try:
+        # The PolicySharp CLI checks policy diagnostics but not all compiler errors.
+        if backend == "policysharp":
+            build_command = [dotnet, "build", str(target), "--nologo", "-v:q",
+                             "-p:RunAnalyzers=true", "-p:RunAnalyzersDuringBuild=true"]
+            if not restore:
+                build_command.append("--no-restore")
+            built = executor(build_command, cwd=root, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=timeout, check=False)
+            if built.returncode != 0:
+                return {
+                    "schemaVersion": 1, "status": "DENY", "exitCode": 1,
+                    "backend": backend, "validatorExitCode": built.returncode,
+                    "diagnostics": parse_build_diagnostics(
+                        (built.stdout or "") + "\n" + (built.stderr or "")
+                    ), "auditFindings": audit, "guidance": GUIDANCE,
+                    "outputTail": ((built.stdout or "") + "\n" + (built.stderr or ""))[-4096:],
+                }
         completed = executor(command, cwd=root, capture_output=True, text=True,
                              encoding="utf-8", errors="replace", timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -123,7 +153,7 @@ def run_check(
                 raise ValueError("invalid PolicySharp result schema")
             if any(not isinstance(entry, dict) or not isinstance(entry.get("id"), str) for entry in entries):
                 raise ValueError("invalid PolicySharp diagnostics")
-            if (completed.returncode == 0) != (cli_code == 0):
+            if completed.returncode != cli_code:
                 raise ValueError("PolicySharp CLI exit status and JSON disagree")
             diagnostics = entries
             build_code = cli_code
@@ -133,11 +163,11 @@ def run_check(
         diagnostics = parse_build_diagnostics(combined)
         build_code = completed.returncode
 
-    status = "DENY" if audit or build_code != 0 else "ALLOW"
+    status = "DENY" if audit or build_code != 0 else "ALLOW" if strict else "UNVERIFIED"
     return {
         "schemaVersion": 1,
         "status": status,
-        "exitCode": 1 if status == "DENY" else 0,
+        "exitCode": 1 if status == "DENY" else 0 if status == "ALLOW" else 2,
         "backend": backend,
         "target": target.relative_to(root).as_posix(),
         "validatorExitCode": build_code,
@@ -154,7 +184,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--ids", action="append", help="Override required IDs (comma separated)")
     parser.add_argument("--backend", choices=("build", "policysharp"), default="build")
-    parser.add_argument("--strict", action="store_true", help="Enable independent suppression audit")
+    parser.add_argument("--strict", action="store_true", help="Require MSBuild participation and suppression audit")
+    parser.add_argument("--guard-project", type=Path, help="Governed .csproj for a solution target")
     parser.add_argument("--restore", action="store_true", help="Allow restore (off by default)")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--policysharp-cli", help="Installed PolicySharp executable path (no shell)")
@@ -162,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     ids = parse_ids(args.ids) if args.ids else frozenset(DEFAULT_IDS)
     result = run_check(args.root, args.project, ids, backend=args.backend,
                        strict=args.strict, restore=args.restore, timeout=args.timeout,
-                       policysharp_cli=args.policysharp_cli)
+                       policysharp_cli=args.policysharp_cli,
+                       guard_project=args.guard_project)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return result["exitCode"]
 
