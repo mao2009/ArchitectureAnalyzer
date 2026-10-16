@@ -15,7 +15,8 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_IDS = ("AARC001", "AARC002", "AARC003", "AARC004", "AARC005", "AARC006", "AARC007", "AARC008", "AARC009", "AARC010", "AARC011", "AARC012",)
+DEFAULT_IDS = ("AARC001", "AARC002", "AARC003", "AARC004", "AARC005", "AARC007", "AARC010", "AARC011", "AARC012",)
+PROTECTED_CATEGORIES = frozenset(["architecture"])
 SKIP_DIRS = frozenset({
     ".git", ".venv", ".idea", ".vs", "__pycache__", "bin", "obj",
     "node_modules", "packages", "artifacts", "TestResults", "out",
@@ -32,7 +33,7 @@ SEVERITY = re.compile(
     r"^\s*dotnet_diagnostic\.([A-Za-z][A-Za-z0-9]*)\.severity\s*=\s*([A-Za-z]+)\b",
     re.I,
 )
-GLOBAL_SEVERITY = re.compile(
+CATEGORY_SEVERITY = re.compile(\n    r"^\\s*dotnet_analyzer_diagnostic\\.category-([A-Za-z][A-Za-z0-9]*)\\.severity\\s*=\\s*([A-Za-z]+)\\b", re.I,\n)\nGLOBAL_SEVERITY = re.compile(
     r"^\s*dotnet_analyzer_diagnostic\.severity\s*=\s*([A-Za-z]+)\b", re.I,
 )
 XML_SETTING = re.compile(
@@ -103,7 +104,7 @@ def audit_content(relative_path: str, content: str, required: frozenset[str]) ->
                     relative_path, index, [match.group(1).upper()],
                     "severity-override", match.group(2).lower(),
                 ))
-            global_match = GLOBAL_SEVERITY.match(line)
+            category_match = CATEGORY_SEVERITY.match(line)\n            if (category_match and category_match.group(1).lower() in PROTECTED_CATEGORIES\n                    and category_match.group(2).lower() in DOWNGRADED):\n                results.append(_finding(\n                    relative_path, index, sorted(required),\n                    "category-severity-override", category_match.group(2).lower(),\n                ))\n            global_match = GLOBAL_SEVERITY.match(line)
             if global_match and global_match.group(1).lower() in DOWNGRADED:
                 results.append(_finding(
                     relative_path, index, sorted(required),
