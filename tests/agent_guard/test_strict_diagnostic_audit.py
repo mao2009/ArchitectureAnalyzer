@@ -62,6 +62,31 @@ class StrictAuditTests(unittest.TestCase):
         self.assertEqual(1, len(found))
         self.assertEqual("category-severity-override", found[0]["kind"])
 
+    def test_nested_attribute_arguments_and_comment_literal_filter(self):
+        self.write("src/Test.cs", """// [SuppressMessage(nameof(Purity), "RT0001")]
+const string Documentation = "SuppressMessage(nameof(Purity), \\"RT0001\\")";
+[System.Diagnostics.CodeAnalysis.SuppressMessage(nameof(Purity), "RT0001")]
+class C {}
+""")
+        findings = self.findings()
+        self.assertEqual(1, len(findings))
+        self.assertEqual("suppress-attribute", findings[0]["kind"])
+        self.assertEqual(["RT0001"], findings[0]["diagnosticIds"])
+
+    def test_commented_pragmas_and_xml_do_not_trigger(self):
+        self.write("src/Test.cs", "// #pragma warning disable AARC002\n"
+                                  "/*\n#pragma warning disable AARC002\n*/\n")
+        self.write("Directory.Build.props", "<Project><!-- <NoWarn>AARC002</NoWarn> --></Project>")
+        self.assertEqual([], self.findings())
+
+    def test_symlink_directory_is_deny(self):
+        (self.root / "outside").mkdir()
+        try:
+            (self.root / "alias").symlink_to(self.root / "outside", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation unavailable")
+        self.assertIn("symlink-directory", {f["kind"] for f in self.findings()})
+
     def test_msbuild_and_ruleset(self):
         self.write("Directory.Build.props", "<Project><PropertyGroup><NoWarn>$(NoWarn);PSHARP2001</NoWarn>"
                    "<RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild></PropertyGroup></Project>")
