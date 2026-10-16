@@ -25,10 +25,6 @@ XML_SUFFIXES = frozenset({".csproj", ".fsproj", ".vbproj", ".props", ".targets",
 CONFIG_NAMES = frozenset({".editorconfig", ".globalconfig"})
 DOWNGRADED = frozenset({"none", "silent", "hidden", "suggestion", "info", "warning"})
 PRAGMA = re.compile(r"^\s*#\s*pragma\s+warning\s+disable(?:\s+(.*))?$", re.I)
-ATTRIBUTE = re.compile(
-    r"(?<![\w])(?:global::)?(?:[\w]+\.)*(?:Unconditional)?"
-    r"SuppressMessage(?:Attribute)?\s*\(([^)]*)\)", re.I | re.S,
-)
 SEVERITY = re.compile(
     r"^\s*dotnet_diagnostic\.([A-Za-z][A-Za-z0-9]*)\.severity\s*=\s*([A-Za-z]+)\b",
     re.I,
@@ -74,6 +70,97 @@ def _finding(path: str, line: int, ids: list[str], kind: str, detail: str) -> di
     return {"path": path, "line": line, "diagnosticIds": ids, "kind": kind, "detail": detail}
 
 
+
+SUPPRESS_PREFIX = re.compile(
+    r"\b(?:Unconditional)?SuppressMessage(?:Attribute)?\s*\(", re.I,
+)
+
+
+def _code_mask(source: str) -> str:
+    """Preserve source offsets but blank C# comments and literal content.
+
+    Lexical helper, not a replacement for a full C# parser.
+    """
+    chars = list(source)
+    n = len(chars)
+    i = 0
+    while i < n:
+        start = i
+        if source.startswith("//", i):
+            j = source.find("\n", i)
+            i = n if j < 0 else j
+        elif source.startswith("/*", i):
+            j = source.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        elif source.startswith('"""', i):
+            # C# raw string literal, including multiline raw strings.
+            q = 3
+            while i + q < n and source[i + q] == '"':
+                q += 1
+            delim = '"' * q
+            j = source.find(delim, i + q)
+            i = n if j < 0 else j + q
+        elif source.startswith('@"', i) or source.startswith('$@"', i) or source.startswith('@$"', i):
+            prefix = 3 if source[i] != '@' or source.startswith('@$"', i) else 2
+            if source.startswith('@$"', i):
+                prefix = 3
+            j = i + prefix
+            while j < n:
+                if source[j] == '"':
+                    if j + 1 < n and source[j + 1] == '"':
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                j += 1
+            i = j
+        elif source[i] in ('"', "'") or source.startswith('$"', i):
+            quote = '"' if source[i] != "'" else "'"
+            j = i + (2 if source.startswith('$"', i) else 1)
+            while j < n:
+                if source[j] == "\\":
+                    j += 2
+                elif source[j] == quote:
+                    j += 1
+                    break
+                else:
+                    j += 1
+            i = j
+        else:
+            i += 1
+            continue
+        for p in range(start, min(i, n)):
+            if chars[p] != "\n":
+                chars[p] = " "
+    return "".join(chars)
+
+
+def _attribute_targets(source: str, required: frozenset[str]) -> list[dict]:
+    masked = _code_mask(source)
+    results = []
+    for match in SUPPRESS_PREFIX.finditer(masked):
+        opening = match.end() - 1
+        depth = 1
+        j = opening + 1
+        while j < len(masked) and depth:
+            if masked[j] == "(":
+                depth += 1
+            elif masked[j] == ")":
+                depth -= 1
+            j += 1
+        if depth:
+            continue
+        targets = affected_ids(source[opening + 1:j - 1], required)
+        if targets:
+            results.append((source.count("\n", 0, match.start()) + 1, targets))
+    return results
+
+
+def _strip_xml_comments(source: str) -> str:
+    return re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                  source, flags=re.S)
+
+
 def audit_content(relative_path: str, content: str, required: frozenset[str]) -> list[dict]:
     """Return deterministic findings; intentionally does not parse arbitrary MSBuild."""
     path = Path(relative_path)
@@ -83,19 +170,16 @@ def audit_content(relative_path: str, content: str, required: frozenset[str]) ->
     lines = content.splitlines()
 
     if suffix == ".cs":
-        for index, line in enumerate(lines, 1):
+        masked_lines = _code_mask(content).splitlines()
+        for index, line in enumerate(masked_lines, 1):
             pragma = PRAGMA.match(line)
             if pragma:
                 targets = affected_ids(pragma.group(1) or "", required, empty_means_all=True)
                 if targets:
                     results.append(_finding(relative_path, index, targets, "pragma", "warning disable"))
-        for match in ATTRIBUTE.finditer(content):
-            targets = affected_ids(match.group(1), required)
-            if targets:
-                results.append(_finding(
-                    relative_path, content.count("\n", 0, match.start()) + 1,
-                    targets, "suppress-attribute", "SuppressMessage attribute",
-                ))
+        for line, targets in _attribute_targets(content, required):
+            results.append(_finding(relative_path, line, targets, "suppress-attribute",
+                                    "SuppressMessage attribute"))
 
     if name in CONFIG_NAMES:
         for index, line in enumerate(lines, 1):
@@ -122,6 +206,7 @@ def audit_content(relative_path: str, content: str, required: frozenset[str]) ->
                 ))
 
     if suffix in XML_SUFFIXES:
+        content = _strip_xml_comments(content)
         for match in XML_SETTING.finditer(content):
             key = match.group("key").lower()
             value = match.group("value").strip()
@@ -171,8 +256,22 @@ def audit_tree(
             raise ValueError("required paths must be relative and remain inside root")
         if not (root / rel).is_file():
             findings.append(_finding(required_file, 0, sorted(required), "missing-required-file", "required enforcement input absent"))
-    for directory, dirs, files in os.walk(root, followlinks=False):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not (Path(directory) / d).is_symlink())
+    def on_walk_error(error: OSError) -> None:
+        findings.append(_finding(str(error.filename or root), 0, sorted(required),
+                                 "unreadable-directory", str(error)))
+
+    for directory, dirs, files in os.walk(root, followlinks=False, onerror=on_walk_error):
+        next_dirs = []
+        for dirname in sorted(dirs):
+            if dirname in SKIP_DIRS:
+                continue
+            candidate = Path(directory) / dirname
+            if candidate.is_symlink():
+                findings.append(_finding(candidate.relative_to(root).as_posix(), 0, sorted(required),
+                                         "symlink-directory", "Directory cannot be traversed safely"))
+            else:
+                next_dirs.append(dirname)
+        dirs[:] = next_dirs
         for filename in sorted(files):
             path = Path(directory) / filename
             relative = path.relative_to(root).as_posix()
