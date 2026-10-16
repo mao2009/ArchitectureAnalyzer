@@ -51,6 +51,7 @@ class ParticipationTests(unittest.TestCase):
         self.assertTrue(any("AdditionalFiles" in p for p in problems))
 
     def test_explicitly_wired_analyzer_and_contract(self):
+        (self.root / "architecture.contract.json").write_text("{}", encoding="utf-8")
         problems = guard.verify_participation(
             self.root, Path("App.csproj"), "loach.ArchitectureAnalyzer",
             required_additional="architecture.contract.json",
