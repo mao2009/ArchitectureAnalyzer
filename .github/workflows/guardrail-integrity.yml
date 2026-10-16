@@ -1,0 +1,62 @@
+name: Guardrail integrity
+
+# Runs trusted base-ref code only. The proposed PR is fetched as git data and
+# is NEVER checked out or executed with pull_request_target privileges.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  protected-change-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify protected file changes have fresh independent review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c protocol.version=2 fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/pr-head"
+          git diff --name-only -z HEAD...refs/remotes/pr-head > "$RUNNER_TEMP/guard-diff.z"
+          protected=false
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              .github/workflows/*|.github/CODEOWNERS|scripts/*|src/*|tests/agent_guard/*|Directory.Build.*|Directory.Packages.props|*.csproj|*/architecture.contract.json|architecture.contract.json)
+                echo "Protected path modified: $path"
+                protected=true ;;
+            esac
+          done < "$RUNNER_TEMP/guard-diff.z"
+          if [[ "$protected" == "false" ]]; then
+            echo "No protected enforcement surfaces changed"
+            exit 0
+          fi
+          approved=false
+          reviews="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews")"
+          while IFS= read -r reviewer; do
+            [[ -n "$reviewer" ]] || continue
+            permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$reviewer/permission" --jq .permission 2>/dev/null || true)"
+            case "$permission" in
+              write|maintain|admin) approved=true; break ;;
+            esac
+          done < <(printf '%s\n' "$reviews" | jq -r \
+            --arg author "$PR_AUTHOR" --arg head "$PR_HEAD_SHA" \
+            '.[] | select(.state == "APPROVED" and .commit_id == $head and .user.login != $author) | .user.login')
+          if [[ "$approved" != "true" ]]; then
+            echo "Independent authorized latest-head approval required for protected changes" >&2
+            exit 1
+          fi
+          echo "Protected changes approved by another authorized reviewer"
