@@ -60,6 +60,30 @@ class ParticipationTests(unittest.TestCase):
         )
         self.assertEqual([], problems)
 
+    def test_evaluated_nowarn_is_denied(self):
+        props = {"RunAnalyzers": "true", "RunAnalyzersDuringBuild": "true",
+                 "NoWarn": "$(NoWarn);AARC002", "WarningsNotAsErrors": ""}
+        problems = guard.verify_participation(
+            self.root, Path("App.csproj"), "loach.PureSharp",
+            executor=self.runner(package="loach.PureSharp", props=props),
+            protected_ids=frozenset({"AARC002"}),
+        )
+        self.assertTrue(any("NoWarn" in p for p in problems))
+
+    def test_exclude_analyzer_assets_is_denied(self):
+        def without_analyzer(cmd, **kwargs):
+            values = {"Properties": {"RunAnalyzers": "true",
+                                     "RunAnalyzersDuringBuild": "true"},
+                      "Items": {"PackageReference": [
+                          {"Identity": "loach.PureSharp", "ExcludeAssets": "analyzers"}],
+                          "ProjectReference": [], "Analyzer": [], "AdditionalFiles": []}}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(values), stderr="")
+        problems = guard.verify_participation(
+            self.root, Path("App.csproj"), "loach.PureSharp",
+            executor=without_analyzer,
+        )
+        self.assertTrue(any("excludes analyzer assets" in p for p in problems))
+
     def test_analyzers_disabled_denied(self):
         props = {"RunAnalyzers": "false", "RunAnalyzersDuringBuild": "true"}
         problems = guard.verify_participation(
