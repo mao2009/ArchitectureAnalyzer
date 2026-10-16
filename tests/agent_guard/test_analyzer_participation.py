@@ -84,6 +84,19 @@ class ParticipationTests(unittest.TestCase):
         )
         self.assertTrue(any("excludes analyzer assets" in p for p in problems))
 
+    def test_analyzer_project_reference_path(self):
+        def project_reference(cmd, **kwargs):
+            values = {"Properties": {"RunAnalyzers": "true", "RunAnalyzersDuringBuild": "true"},
+                      "Items": {"PackageReference": [], "Analyzer": [], "AdditionalFiles": [],
+                                "ProjectReference": [
+                                    {"Identity": "../../../src/ArchitectureAnalyzer/ArchitectureAnalyzer.csproj",
+                                     "OutputItemType": "Analyzer"}]}}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(values), stderr="")
+        self.assertEqual([], guard.verify_participation(
+            self.root, Path("App.csproj"), "loach.ArchitectureAnalyzer",
+            executor=project_reference,
+        ))
+
     def test_analyzers_disabled_denied(self):
         props = {"RunAnalyzers": "false", "RunAnalyzersDuringBuild": "true"}
         problems = guard.verify_participation(
