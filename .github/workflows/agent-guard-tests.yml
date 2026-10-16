@@ -17,3 +17,5 @@ jobs:
           python-version: '3.11'
       - name: Run offline strict gate fixture tests
         run: python -m unittest discover -s tests/agent_guard -p 'test_strict_diagnostic_audit.py' -v
+      - name: Run offline agent feedback fixture tests
+        run: python -m unittest discover -s tests/agent_guard -p 'test_agent_diagnostic_feedback.py' -v
