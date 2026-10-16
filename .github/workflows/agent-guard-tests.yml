@@ -15,6 +15,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.302'
+      - name: Verify MSBuild participation fixtures
+        run: python -m unittest discover -s tests/agent_guard -p 'test_analyzer_participation.py' -v
+      - name: Verify real MSBuild evaluation and missing analyzer rejection
+        run: python -m unittest discover -s tests/agent_guard -p 'test_msbuild_live.py' -v
       - name: Run offline strict gate fixture tests
         run: python -m unittest discover -s tests/agent_guard -p 'test_strict_diagnostic_audit.py' -v
       - name: Run offline agent feedback fixture tests
