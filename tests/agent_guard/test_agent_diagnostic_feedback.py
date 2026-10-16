@@ -50,6 +50,18 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual("DENY", self.check(green_build, strict=True)["status"])
         self.assertEqual("ALLOW", self.check(green_build, strict=False)["status"])
 
+    def test_parses_all_three_analyzer_families(self):
+        lines = (
+            "source.cs(2,1): error RT0001: purity broken [App.csproj]\n"
+            "source.cs(3,1): error LVP0001: immutable local changed [App.csproj]\n"
+            "source.cs(4,1): error FIF0001: missing Else [App.csproj]\n"
+            "source.cs(5,1): error AARC002: forbidden dependency [App.csproj]\n"
+            "source.cs(6,1): error PSHARP2001: denied [App.csproj]\n"
+        )
+        diagnostics = feedback.parse_build_diagnostics(lines)
+        self.assertEqual(["RT0001", "LVP0001", "FIF0001", "AARC002", "PSHARP2001"],
+                         [item["id"] for item in diagnostics])
+
     def test_cli_uses_existing_policysharp_json_contract(self):
         cli = self.root / "src" / "PolicySharp.Cli" / "PolicySharp.Cli.csproj"
         cli.parent.mkdir(parents=True)
