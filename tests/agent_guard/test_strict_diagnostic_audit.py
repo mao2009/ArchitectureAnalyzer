@@ -54,6 +54,14 @@ class StrictAuditTests(unittest.TestCase):
         self.assertEqual(["severity-override", "global-severity-override"],
                          [item["kind"] for item in self.findings()])
 
+    def test_category_severity_downgrade(self):
+        category = sorted(gate.PROTECTED_CATEGORIES)[0]
+        self.write(".editorconfig",
+                   "dotnet_analyzer_diagnostic.category-" + category + ".severity = none\n")
+        found = self.findings()
+        self.assertEqual(1, len(found))
+        self.assertEqual("category-severity-override", found[0]["kind"])
+
     def test_msbuild_and_ruleset(self):
         self.write("Directory.Build.props", "<Project><PropertyGroup><NoWarn>$(NoWarn);PSHARP2001</NoWarn>"
                    "<RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild></PropertyGroup></Project>")
