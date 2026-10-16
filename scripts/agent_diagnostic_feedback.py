@@ -97,7 +97,7 @@ def run_check(
         wiring = verify_participation(
             root, governed, "loach.ArchitectureAnalyzer", "architecture.contract.json",
             internal_cli=(backend == "policysharp"), dotnet=dotnet, executor=executor,
-            timeout=timeout,
+            timeout=timeout, protected_ids=protected_ids,
         )
         if wiring:
             return _error("enforcement participation is unverified: " + "; ".join(wiring))
