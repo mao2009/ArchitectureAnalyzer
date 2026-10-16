@@ -312,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.project is not None:
             problems = verify_participation(
                 args.root, args.project, args.analyzer, args.additional_file,
+                protected_ids=ids,
             )
             findings.extend(_finding(str(args.project), 0, sorted(ids),
                                      "enforcement-unverified", message)
