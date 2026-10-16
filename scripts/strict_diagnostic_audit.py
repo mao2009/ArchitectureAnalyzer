@@ -15,6 +15,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from analyzer_participation import verify_participation
+
 DEFAULT_IDS = ("AARC001", "AARC002", "AARC003", "AARC004", "AARC005", "AARC007", "AARC010", "AARC011", "AARC012",)
 PROTECTED_CATEGORIES = frozenset(["architecture"])
 SKIP_DIRS = frozenset({
@@ -294,6 +297,9 @@ def audit_tree(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="ArchitectureAnalyzer" + " opt-in suppression audit")
     parser.add_argument("--root", type=Path, default=Path("."))
+    parser.add_argument("--project", type=Path, help="Governed .csproj for MSBuild participation check")
+    parser.add_argument("--analyzer", default="loach.ArchitectureAnalyzer", help="Required analyzer reference")
+    parser.add_argument("--additional-file", default="architecture.contract.json", help="Required AdditionalFiles input")
     parser.add_argument("--ids", action="append", help="Override protected diagnostic IDs (comma separated)")
     parser.add_argument("--exclude", action="append", default=[], help="Explicit reviewed glob exclusion")
     parser.add_argument("--require-file", action="append", default=[], help="Required input path relative to root")
@@ -303,9 +309,21 @@ def main(argv: list[str] | None = None) -> int:
         if not ids:
             raise ValueError("at least one diagnostic ID is required")
         findings = audit_tree(args.root, ids, tuple(args.exclude), tuple(args.require_file))
-        exit_code = 1 if findings else 0
+        if args.project is not None:
+            problems = verify_participation(
+                args.root, args.project, args.analyzer, args.additional_file,
+            )
+            findings.extend(_finding(str(args.project), 0, sorted(ids),
+                                     "enforcement-unverified", message)
+                            for message in problems)
+        # Source scanning alone must never be interpreted as a passing
+        # enforcement check. A successful opt-in MSBuild wiring audit is
+        # AUDIT_PASS, not proof that a Roslyn diagnostic actually executed.
+        status = ("DENY" if findings else
+                  "AUDIT_ONLY" if args.project is None else "AUDIT_PASS")
+        exit_code = 1 if findings else 2 if args.project is None else 0
         result = {
-            "schemaVersion": 1, "status": "DENY" if findings else "ALLOW",
+            "schemaVersion": 1, "status": status,
             "diagnosticIds": sorted(ids), "findings": findings, "exitCode": exit_code,
         }
     except (OSError, ValueError) as exc:
