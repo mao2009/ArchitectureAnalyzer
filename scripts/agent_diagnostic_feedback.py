@@ -21,7 +21,7 @@ from strict_diagnostic_audit import DEFAULT_IDS, audit_tree, parse_ids
 
 BUILD_DIAGNOSTIC = re.compile(
     r"^(?P<source>.+?)\((?P<line>\d+),(?P<column>\d+)(?:,\d+,\d+)?\):\s*"
-    r"(?P<severity>error|warning)\s+(?P<id>[A-Za-z]+\d{4}):\s*"
+    r"(?P<severity>error|warning)\s+(?P<id>[A-Za-z]+\d{3,4}):\s*"
     r"(?P<message>.*?)(?:\s+\[[^\]]+\])?\s*$", re.I,
 )
 GUIDANCE = (
@@ -46,7 +46,8 @@ def parse_build_diagnostics(output: str) -> list[dict]:
             "message": match.group("message").strip(),
         })
     # dotnet sometimes repeats diagnostics in its final summary.
-    return [dict(items) for items in {tuple(sorted(x.items())) for x in findings}]
+    return sorted((dict(items) for items in {tuple(sorted(x.items())) for x in findings}),
+                  key=lambda item: (item["path"], item["line"], item["column"], item["id"]))
 
 
 def _error(message: str) -> dict:
@@ -100,7 +101,7 @@ def run_check(
             cli_project = root / "src" / "PolicySharp.Cli" / "PolicySharp.Cli.csproj"
             if not cli_project.is_file():
                 return _error("PolicySharp CLI project not found; set --policysharp-cli")
-            command = [dotnet, "run", "--project", str(cli_project)]
+            command = [dotnet, "run", "--no-build", "--project", str(cli_project)]
             if not restore:
                 command.append("--no-restore")
             command.extend(["--", "check", "--json", str(target)])
