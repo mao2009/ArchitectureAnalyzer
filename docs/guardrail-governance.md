@@ -1,29 +1,44 @@
-# Guardrail ownership and deployment controls — ArchitectureAnalyzer
+# Solo Maintainer Mode — ArchitectureAnalyzer
 
-The new guard scripts, tests and workflow are defense-in-depth, **not a self-authenticating trust boundary**. Source-control access lets an agent alter Python validators or CI definitions in a PR. A green result from a PR-modifiable script is not approval of its own enforcement.
+This repository is maintained by one person. Requiring a different PR approver would permanently block ordinary work. The goal here is **not** to claim independent human review: it is to keep the coding agent's edits, reproducible CI checks and the owner's explicit final decision separate.
 
-## Required repository configuration (GitHub Settings, human-owned)
+## GitHub repository configuration (owner-only, manual)
 
-1. Protect `main` with a ruleset requiring a pull request before merge, up-to-date required status checks (verify the exact check names in GitHub), and at least one approval from a reviewer **other than the PR author**. Dismiss stale approvals when new commits arrive.
-2. Enable **Require review from Code Owners** for `.github/CODEOWNERS`. The checked-in owner `@mao2009` is a fallback owner of these paths, **not independent approval for that same account's changes**. Appoint a real second maintainer with write permission as a code owner before asserting independent approvals.
-3. Include the following checks as required where they exist: `CI`, `Agent guard regression tests / python-guard-tests`. `pull_request` and `workflow_dispatch` tests alone do **not** configure branch protection.
-4. Do not let an agent add approval labels, edit GitHub rulesets, or change enforcement scripts as part of an ordinary application-code PR. Put guardrail changes in a separate PR with an explicit rollback plan.
-5. Invalidate the approval on the next pushed SHA and re-run the **actual C# package-consumer canary** and full project build. Canary must fail on a deliberately injected rule violation and when the analyzer is missing; a passing build alone is not enough.
+- Under **Settings > Rules > Rulesets**, protect `main`: require a pull request, successful required CI checks and up-to-date validation. Choose the exact names from GitHub's observed status checks; do not guess a missing check name.
+- Set required PR approvals to **zero** for this solo workflow and **do not enable "Require review from Code Owners"**. `.github/CODEOWNERS` remains a sensitive-path inventory for future collaborators, not a request for impossible self-approval.
+- After the new workflows are integrated into the **protected main branch**, include `Policy integrity / trust-boundary` (PolicySharp) or `Guardrail integrity / protected-change-review` (the other repos) as a required check.
+- Keep the default PR `build/test`, packaged-consumer regression, suppression-audit and red/green canary checks as required where available.
+- Keep AI/CI credentials limited to **read-only repo access or narrowly scoped code contribution**. They must not be able to add an owner's approval comment, apply approval labels, edit repository rulesets or merge to `main`.
+- If the agent uses the same owner identity or access token as the maintainer, GitHub cannot distinguish human approval from agent activity. **This mode does not provide a security boundary in that configuration.** Use separate accounts/credentials and protect the owner's login.
 
-Require an independent maintainer review for protected analyzer/contract/workflow changes; this repo currently has no PolicySharp-style runtime approval query.
+## Exact owner sign-off (only for protected changes)
 
-## What CI proves and does not prove
+1. Review all protected changes yourself, including policy files, analyzer references, workflows, hooks, validation scripts and their tests.
+2. Read the complete current **PR head SHA** (40 lowercase hexadecimal characters). Do not use the base branch SHA or an abbreviated hash.
+3. On that PR, manually post this **exact one-line comment** (replace the placeholder with the actual SHA):
 
-The agent-guard workflow exercises offline parser tests and live MSBuild project evaluation. Agent feedback PRs also execute real C# consumer RED (prohibited code), GREEN (approved code fix), suppression and analyzer-removal tests. Those test programs assert observed diagnostic IDs, not merely the process exit code.
+   ```text
+   SOLO-APPROVED <40-character-current-pr-head-sha>
+   ```
 
-**Trust limitation:** GitHub workflows committed on an untrusted PR branch are still under that branch's control. To claim untrusted-agent containment, enforce these checks using a pinned validator from a separately protected ref or trusted workflow after the validator baseline has been reviewed and merged, and keep all PR code execution on isolated, least-privilege runners. Never execute PR code with a write-enabled `pull_request_target` token or secrets.
+4. The trusted Guardrail integrity check requires the SHA-bound owner comment when protected sources, analyzer rules or CI are changed. After posting the comment, use GitHub Actions > Re-run failed jobs for this PR (or another supported PR workflow event) to evaluate the comment. The comment alone does not trigger this pull_request_target workflow.
+5. Confirm the required trusted workflow and regular CI checks passed for the **same current head**. Merge explicitly yourself.
 
-## Operator runbook
+The trusted, read-only `pull_request_target` gate checks GitHub's live PR head and owner-authored issue comments. It accepts only an exact `SOLO-APPROVED <SHA>` line by the repository **OWNER** for the current SHA; a comment in code or the PR description does not count. Any subsequent push changes the SHA, invalidating the prior sign-off. External review is still encouraged when available, but is not a hard dependency for solo maintenance.
 
-- Review the exact diff of protected paths, new tests, validation ID changes and rollback steps.
-- Confirm genuine code changes are reviewed independently of changes to policy/configuration.
-- Observe all required green checks from the reviewed head SHA.
-- Use a separate qualified reviewer and GitHub required-code-owner review. Never equate the repository author's own approval with an independent review.
-- Merge strict-audit PR before retargeting/merging the stacked feedback PR. If this cannot be met, leave both as Draft; do not remove protections merely to turn CI green.
+## Trust boundary and bootstrap
 
-Related PR/issue: #87.
+A PR's own tests are **not** independent of the PR's contents. The read-only guardrail workflow checks out only the protected **base-branch SHA**, fetches the PR head as Git data and never executes PR code with elevated tokens. Its approvals are checked through live GitHub API data.
+
+**Bootstrap caveat:** GitHub executes `pull_request_target` workflows from the base branch. Before this workflow is merged into protected `main`, its new rules are not active on that repository, even if its PR tests are green. The initial merge needs a conscious owner decision using the existing branch protection and GitHub interface. Never call the new mechanism active until that transition completes.
+
+A GitHub ruleset can allow an owner/admin bypass. Keep that exceptional, intentional and recorded with a justification. Never disable required CI or grant an agent admin access merely to obtain a green check.
+
+## Test and rollback
+
+- Automated regression tests cover wrong owner, wrong SHA, missing comment, missing label (PolicySharp), stale PR state, live PR SHA mismatch, pagination and malformed API data.
+- The .NET consumer red/green, analyzer-unloaded and suppression fixtures must continue to pass.
+- To revoke an approval before merge: remove `policy-approved` for PolicySharp, or remove/edit the owner comment for the other repos; push a new SHA to invalidate previous authorizations.
+- Roll back by reverting the solo gate changes in a separately reviewed owner-controlled PR, **not** by silently deleting the gate during an unrelated code change.
+
+Related work: #87.
