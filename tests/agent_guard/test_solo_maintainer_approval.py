@@ -68,7 +68,7 @@ class SoloMaintainerApprovalTests(unittest.TestCase):
             calls.append(path)
             if path.endswith("/pulls/43"):
                 return pr()
-            if "page=1" in path:
+            if path.endswith("&page=1"):
                 return [approval(author="bot")] * 100
             return [approval()]
         self.assertTrue(gate.check(REPO, 43, HEAD, "mao2009", "read-token",
