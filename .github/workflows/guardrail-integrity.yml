@@ -1,31 +1,33 @@
 name: Guardrail integrity
 
-# Runs trusted base-ref code only. The proposed PR is fetched as git data and
-# is NEVER checked out or executed with pull_request_target privileges.
+# Solo-maintainer protected-path sign-off. After bootstrap this runs from main,
+# never using an untrusted PR checkout with pull_request_target privileges.
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
 
 permissions:
   contents: read
   pull-requests: read
+  issues: read
 
 jobs:
   protected-change-review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout trusted base
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify protected file changes have fresh independent review
+      - name: Audit diff and require solo sign-off for protected changes
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_OWNER: ${{ github.repository_owner }}
         shell: bash
         run: |
           set -euo pipefail
@@ -35,28 +37,15 @@ jobs:
           protected=false
           while IFS= read -r -d '' path; do
             case "$path" in
-              .github/workflows/*|.github/CODEOWNERS|scripts/*|src/*|tests/agent_guard/*|Directory.Build.*|Directory.Packages.props|*.csproj|*/architecture.contract.json|architecture.contract.json)
-                echo "Protected path modified: $path"
+              .github/workflows/*|.github/CODEOWNERS|scripts/*|src/*|tests/agent_guard/*|Directory.Build.*|Directory.Packages.props|*.csproj|*.props|*.targets|*.editorconfig|*.globalconfig|*/architecture.contract.json|architecture.contract.json)
+                echo "Guardrail change: $path"
                 protected=true ;;
             esac
           done < "$RUNNER_TEMP/guard-diff.z"
           if [[ "$protected" == "false" ]]; then
-            echo "No protected enforcement surfaces changed"
+            echo "No guardrail-affecting changes"
             exit 0
           fi
-          approved=false
-          reviews="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews")"
-          while IFS= read -r reviewer; do
-            [[ -n "$reviewer" ]] || continue
-            permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$reviewer/permission" --jq .permission 2>/dev/null || true)"
-            case "$permission" in
-              write|maintain|admin) approved=true; break ;;
-            esac
-          done < <(printf '%s\n' "$reviews" | jq -r \
-            --arg author "$PR_AUTHOR" --arg head "$PR_HEAD_SHA" \
-            '.[] | select(.state == "APPROVED" and .commit_id == $head and .user.login != $author) | .user.login')
-          if [[ "$approved" != "true" ]]; then
-            echo "Independent authorized latest-head approval required for protected changes" >&2
-            exit 1
-          fi
-          echo "Protected changes approved by another authorized reviewer"
+          python3 scripts/solo_maintainer_approval.py \
+            --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
+            --head "$PR_HEAD_SHA" --owner "$REPO_OWNER"
