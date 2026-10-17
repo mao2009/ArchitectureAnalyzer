@@ -26,3 +26,7 @@ jobs:
         run: python -m unittest discover -s tests/agent_guard -p 'test_solo_maintainer_approval.py' -v
       - name: Run offline strict gate fixture tests
         run: python -m unittest discover -s tests/agent_guard -p 'test_strict_diagnostic_audit.py' -v
+      - name: Run offline agent feedback fixture tests
+        run: python -m unittest discover -s tests/agent_guard -p 'test_agent_diagnostic_feedback.py' -v
+      - name: Real ArchitectureAnalyzer consumer RED/GREEN gate
+        run: bash tests/agent_guard/verify_architecture_feedback.sh
