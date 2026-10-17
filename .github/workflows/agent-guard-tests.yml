@@ -22,6 +22,8 @@ jobs:
         run: python -m unittest discover -s tests/agent_guard -p 'test_analyzer_participation.py' -v
       - name: Verify real MSBuild evaluation and missing analyzer rejection
         run: python -m unittest discover -s tests/agent_guard -p 'test_msbuild_live.py' -v
+      - name: Test Solo Maintainer current-SHA approval contract
+        run: python -m unittest discover -s tests/agent_guard -p 'test_solo_maintainer_approval.py' -v
       - name: Run offline strict gate fixture tests
         run: python -m unittest discover -s tests/agent_guard -p 'test_strict_diagnostic_audit.py' -v
       - name: Run offline agent feedback fixture tests
