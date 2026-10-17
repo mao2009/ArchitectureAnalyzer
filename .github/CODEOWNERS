@@ -1,0 +1,10 @@
+# ArchitectureAnalyzer rule governance.
+# Solo maintainer: map sensitive paths, but do not require self-review in Rulesets.
+/.github/workflows/ @mao2009
+/.github/CODEOWNERS @mao2009
+/src/ @mao2009
+/scripts/ @mao2009
+/tests/agent_guard/ @mao2009
+/Directory.Build.* @mao2009
+/Directory.Packages.props @mao2009
+/**/architecture.contract.json @mao2009
