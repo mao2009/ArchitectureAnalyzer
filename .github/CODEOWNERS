@@ -1,6 +1,5 @@
 # ArchitectureAnalyzer rule governance.
-# Code owner reviews only enforce separation when GitHub branch rules require
-# them and an independent non-author reviewer has permission.
+# Solo maintainer: map sensitive paths, but do not require self-review in Rulesets.
 /.github/workflows/ @mao2009
 /.github/CODEOWNERS @mao2009
 /src/ @mao2009
